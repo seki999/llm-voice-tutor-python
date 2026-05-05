@@ -1,4 +1,4 @@
 gradio
 faster-whisper
 requests
-pydantic
+pyttsx3
