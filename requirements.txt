@@ -1,0 +1,4 @@
+gradio
+faster-whisper
+requests
+pydantic
