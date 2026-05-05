@@ -44,7 +44,7 @@ def cleanup_temp_audio_files() -> None:
     删除之前生成的临时 TTS 音频文件。
 
     注意：
-    不要在返回给 Gradio 后立刻删除刚生成的文件，
+    不要在返回给 Gradio 后立刻删除刚生成的 TTS 文件，
     否则浏览器可能还没来得及播放。
     所以本函数通常在“下一次生成新音频之前”清理旧音频。
     """
@@ -67,9 +67,26 @@ def cleanup_temp_audio_files() -> None:
 atexit.register(cleanup_temp_audio_files)
 
 
+def delete_input_audio_file(audio_path: Optional[str]) -> None:
+    """
+    删除 Gradio 麦克风录音生成的输入音频文件。
+    这个文件在 Whisper 转写完成后就可以删除。
+    """
+    if not audio_path:
+        return
+
+    try:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+            print("[Audio Input] Deleted input audio:", audio_path)
+    except Exception as e:
+        print("[Audio Input] Failed to delete input audio:", audio_path, e)
+
+
 def transcribe_audio(audio_path: Optional[str]) -> str:
     """
     使用 faster-whisper 识别 Gradio 录音文件。
+    转写完成后，立即删除输入音频文件，方便连续录音。
     """
     if not audio_path:
         print("[Whisper] No audio_path received")
@@ -102,6 +119,10 @@ def transcribe_audio(audio_path: Optional[str]) -> str:
     except Exception as e:
         print("[Whisper] Error:", e)
         return ""
+
+    finally:
+        # Whisper 已经完成读取后，马上删除输入录音文件。
+        delete_input_audio_file(audio_path)
 
 
 def call_lm_studio(target_word: str, transcript: str, mode: str) -> str:
@@ -218,6 +239,70 @@ Reply briefly and clearly.
         return f"调用 LM Studio 失败：{e}"
 
 
+def select_female_english_voice(engine: pyttsx3.Engine) -> None:
+    """
+    优先选择 Windows 上的英文女声。
+    常见英文女声：Zira / Aria / Jenny / Sonia / Hazel / Samantha 等。
+    如果找不到女声，则退回英文 voice；再找不到则使用系统默认 voice。
+    """
+    voices = engine.getProperty("voices")
+
+    female_keywords = [
+        "zira",
+        "aria",
+        "jenny",
+        "sonia",
+        "hazel",
+        "susan",
+        "heather",
+        "samantha",
+        "female",
+    ]
+
+    english_keywords = [
+        "english",
+        "en-us",
+        "en-gb",
+        "en_",
+        "en-",
+    ]
+
+    selected_voice_id = None
+
+    # 第一轮：优先找英文女声
+    for voice in voices:
+        name = (voice.name or "").lower()
+        voice_id = (voice.id or "").lower()
+        combined = name + " " + voice_id
+
+        is_female = any(keyword in combined for keyword in female_keywords)
+        is_english = any(keyword in combined for keyword in english_keywords)
+
+        if is_female and is_english:
+            selected_voice_id = voice.id
+            print("[TTS] Selected female English voice:", voice.name)
+            break
+
+    # 第二轮：如果没有英文女声，至少找英文 voice
+    if not selected_voice_id:
+        for voice in voices:
+            name = (voice.name or "").lower()
+            voice_id = (voice.id or "").lower()
+            combined = name + " " + voice_id
+
+            is_english = any(keyword in combined for keyword in english_keywords)
+
+            if is_english:
+                selected_voice_id = voice.id
+                print("[TTS] Selected English voice:", voice.name)
+                break
+
+    if selected_voice_id:
+        engine.setProperty("voice", selected_voice_id)
+    else:
+        print("[TTS] No English female voice found. Using default voice.")
+
+
 def text_to_speech_file(text: str) -> Optional[str]:
     """
     使用 Windows 本地 SAPI 语音把文本保存成 wav 文件。
@@ -251,20 +336,8 @@ def text_to_speech_file(text: str) -> Optional[str]:
         # 音量 0.0 ~ 1.0
         engine.setProperty("volume", 1.0)
 
-        # 尽量选择英文 voice。Windows 常见英文 voice: Zira / David。
-        voices = engine.getProperty("voices")
-        for voice in voices:
-            name = (voice.name or "").lower()
-            voice_id = (voice.id or "").lower()
-
-            if (
-                "english" in name
-                or "en-us" in voice_id
-                or "zira" in name
-                or "david" in name
-            ):
-                engine.setProperty("voice", voice.id)
-                break
+        # 优先选择英文女声。
+        select_female_english_voice(engine)
 
         engine.save_to_file(text, output_path)
         engine.runAndWait()
@@ -307,6 +380,12 @@ def voice_conversation(target_word: str, audio_path: Optional[str]):
     """
     语音对话按钮。
     先用 Whisper 识别语音，再让 LLM 继续对话，并朗读回答。
+
+    返回 4 个值：
+    1. Whisper 识别结果
+    2. LLM 回答
+    3. LLM 回答朗读音频
+    4. 清空录音输入组件
     """
     print("[App] voice_conversation audio_path =", audio_path)
 
@@ -315,6 +394,7 @@ def voice_conversation(target_word: str, audio_path: Optional[str]):
             "没有收到录音文件。请先在麦克风控件里录音，停止录音后再点击按钮。",
             "",
             None,
+            None,
         )
 
     transcript = transcribe_audio(audio_path)
@@ -324,18 +404,26 @@ def voice_conversation(target_word: str, audio_path: Optional[str]):
             "Whisper 没有识别到语音。请说长一点、声音大一点，并确认麦克风权限正常。",
             "",
             None,
+            None,
         )
 
     reply = call_lm_studio(target_word, transcript, "conversation")
     audio_reply = text_to_speech_file(reply)
 
-    return transcript, reply, audio_reply
+    # 第 4 个返回值 None 会清空 gr.Audio 输入组件，方便下一次连续录音。
+    return transcript, reply, audio_reply, None
 
 
 def correct_sentence(target_word: str, audio_path: Optional[str]):
     """
     纠正我的造句按钮。
     先用 Whisper 识别语音，再让 LLM 纠正句子，并朗读回答。
+
+    返回 4 个值：
+    1. Whisper 识别结果
+    2. LLM 回答
+    3. LLM 回答朗读音频
+    4. 清空录音输入组件
     """
     print("[App] correct_sentence audio_path =", audio_path)
 
@@ -344,6 +432,7 @@ def correct_sentence(target_word: str, audio_path: Optional[str]):
             "没有收到录音文件。请先在麦克风控件里录音，停止录音后再点击按钮。",
             "",
             None,
+            None,
         )
 
     transcript = transcribe_audio(audio_path)
@@ -353,12 +442,14 @@ def correct_sentence(target_word: str, audio_path: Optional[str]):
             "Whisper 没有识别到语音。请说长一点、声音大一点，并确认麦克风权限正常。",
             "",
             None,
+            None,
         )
 
     reply = call_lm_studio(target_word, transcript, "correction")
     audio_reply = text_to_speech_file(reply)
 
-    return transcript, reply, audio_reply
+    # 第 4 个返回值 None 会清空 gr.Audio 输入组件，方便下一次连续录音。
+    return transcript, reply, audio_reply, None
 
 
 def update_words_from_text(words_text: str):
@@ -466,13 +557,13 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
     chat_btn.click(
         fn=voice_conversation,
         inputs=[target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output],
+        outputs=[transcript_output, reply_output, audio_reply_output, audio_input],
     )
 
     correction_btn.click(
         fn=correct_sentence,
         inputs=[target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output],
+        outputs=[transcript_output, reply_output, audio_reply_output, audio_input],
     )
 
 
