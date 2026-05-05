@@ -1,8 +1,10 @@
 import atexit
+import base64
 import json
 import os
 import re
 import tempfile
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import gradio as gr
@@ -71,17 +73,43 @@ DEFAULT_WORDS = [
 TEMP_AUDIO_FILES = []
 
 
+def check_teacher_avatar_file() -> None:
+    """
+    Confirm that teacher-avatar.gif exists in the same folder as app.py.
+    """
+    avatar_path = Path(__file__).parent / "teacher-avatar.gif"
+    if avatar_path.exists():
+        print("[Avatar] Found local teacher image:", avatar_path)
+    else:
+        print("[Avatar] WARNING: teacher-avatar.gif not found next to app.py.")
+        print("[Avatar] Please put teacher-avatar.gif in the same folder as app.py.")
+
+
+def get_teacher_avatar_data_uri() -> str:
+    """
+    Read teacher-avatar.gif from the same folder as app.py and convert it to a data URI.
+    This is more reliable than using /file=teacher-avatar.gif in Gradio 6.
+    """
+    avatar_path = Path(__file__).parent / "teacher.gif"
+
+    if not avatar_path.exists():
+        print("[Avatar] WARNING: teacher-avatar.gif not found. Avatar image will be blank.")
+        return ""
+
+    try:
+        data = avatar_path.read_bytes()
+        encoded = base64.b64encode(data).decode("ascii")
+        print("[Avatar] Loaded teacher-avatar.gif as base64 data URI.")
+        return f"data:image/gif;base64,{encoded}"
+    except Exception as e:
+        print("[Avatar] Failed to load teacher-avatar.gif:", e)
+        return ""
+
+
 # ============================================================
 # Avatar CSS + JS
 # ============================================================
 AVATAR_CSS = r"""
-:root {
-  --teacher-mouth-open: 8px;
-  --teacher-mouth-width: 36px;
-  --teacher-mouth-radius: 0 0 20px 20px;
-  --teacher-mouth-inner-opacity: 0.55;
-}
-
 .teacher-panel {
   width: 100%;
   min-height: 460px;
@@ -99,7 +127,7 @@ AVATAR_CSS = r"""
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px 10px 24px;
+  padding: 18px 16px 24px;
 }
 
 .teacher-wrap {
@@ -110,303 +138,32 @@ AVATAR_CSS = r"""
   z-index: 2;
 }
 
-.teacher-stage {
-  position: relative;
-  width: 310px;
-  height: 360px;
+.teacher-image-frame {
+  width: 100%;
+  max-width: 360px;
+  border-radius: 24px;
+  padding: 10px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 16px 40px rgba(0,0,0,.22);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
-.teacher-shadow {
-  position: absolute;
-  left: 50%;
-  bottom: 7px;
-  transform: translateX(-50%);
-  width: 210px;
-  height: 28px;
-  border-radius: 50%;
-  background: rgba(0,0,0,.28);
-  filter: blur(12px);
+.teacher-avatar.speaking .teacher-image-frame {
+  transform: scale(1.02);
+  border-color: rgba(24,201,100,.42);
+  box-shadow:
+    0 18px 42px rgba(0,0,0,.26),
+    0 0 0 4px rgba(24,201,100,.14);
 }
 
-.teacher-hair-back {
-  position: absolute;
-  left: 50%;
-  top: 8px;
-  transform: translateX(-50%);
-  width: 232px;
-  height: 262px;
-  background: linear-gradient(180deg, #f7e0a8 0%, #e8b35f 40%, #af6d28 100%);
-  border-radius: 120px 120px 88px 88px;
-  box-shadow: inset -18px -18px 0 rgba(111,62,13,.16);
-}
-
-.teacher-shoulders {
-  position: absolute;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  width: 240px;
-  height: 116px;
-  background: linear-gradient(180deg, #d7e6ff 0%, #9ab9e9 100%);
-  border-radius: 90px 90px 28px 28px;
-  border: 1px solid rgba(255,255,255,.24);
-  box-shadow: inset 0 10px 22px rgba(255,255,255,.18);
-}
-
-.teacher-neck {
-  position: absolute;
-  left: 50%;
-  top: 216px;
-  transform: translateX(-50%);
-  width: 58px;
-  height: 58px;
-  background: linear-gradient(180deg, #f8d7c3 0%, #e9b99a 100%);
+.teacher-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
   border-radius: 18px;
-  z-index: 4;
-}
-
-.teacher-collar-left,
-.teacher-collar-right {
-  position: absolute;
-  top: 256px;
-  width: 50px;
-  height: 64px;
-  background: rgba(255,255,255,.95);
-  z-index: 5;
-  box-shadow: 0 4px 10px rgba(0,0,0,.06);
-}
-.teacher-collar-left {
-  left: 116px;
-  clip-path: polygon(0 0, 100% 0, 58% 100%, 22% 82%);
-  transform: rotate(3deg);
-}
-.teacher-collar-right {
-  right: 116px;
-  clip-path: polygon(0 0, 100% 0, 78% 82%, 42% 100%);
-  transform: rotate(-3deg);
-}
-
-.teacher-head {
-  position: absolute;
-  left: 50%;
-  top: 40px;
-  transform: translateX(-50%);
-  width: 190px;
-  height: 225px;
-  z-index: 6;
-}
-
-.teacher-face {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, #ffe0cf 0%, #efbf9e 92%);
-  border-radius: 42% 42% 46% 46% / 36% 36% 54% 54%;
-  box-shadow:
-    inset -10px -12px 0 rgba(141,76,45,.08),
-    0 16px 26px rgba(0,0,0,.17);
-}
-
-.teacher-hair-front {
-  position: absolute;
-  left: 50%;
-  top: -6px;
-  transform: translateX(-50%);
-  width: 204px;
-  height: 102px;
-  background: linear-gradient(180deg, #f7dfa2 0%, #d89a43 58%, #ac6f2d 100%);
-  border-radius: 84px 84px 44px 44px;
-  z-index: 8;
-  box-shadow: inset -15px -8px 0 rgba(112,68,17,.18);
-}
-
-.teacher-fringe-left,
-.teacher-fringe-right {
-  position: absolute;
-  top: 24px;
-  width: 52px;
-  height: 110px;
-  background: linear-gradient(180deg, #edc973 0%, #bf7a2f 100%);
-  z-index: 8;
-}
-.teacher-fringe-left {
-  left: 14px;
-  border-radius: 20px 0 40px 70px;
-  transform: rotate(-8deg);
-}
-.teacher-fringe-right {
-  right: 20px;
-  width: 64px;
-  height: 116px;
-  border-radius: 0 20px 70px 40px;
-  transform: rotate(14deg);
-}
-
-.teacher-ear {
-  position: absolute;
-  top: 108px;
-  width: 20px;
-  height: 34px;
-  background: #efbd9e;
-  border-radius: 50%;
-  z-index: 5;
-}
-.teacher-ear.left { left: -2px; }
-.teacher-ear.right { right: -2px; }
-
-.teacher-eye {
-  position: absolute;
-  top: 90px;
-  width: 28px;
-  height: 16px;
-  z-index: 10;
-}
-.teacher-eye.left { left: 44px; }
-.teacher-eye.right { right: 44px; }
-
-.teacher-eye-lid {
-  position: absolute;
-  inset: 0;
-  border-top: 4px solid #6a483e;
-  border-radius: 50%;
-}
-.teacher-eye-ball {
-  position: absolute;
-  left: 5px;
-  top: 6px;
-  width: 18px;
-  height: 10px;
-  background: linear-gradient(180deg, #6ca5d5 0%, #335b80 100%);
-  border-radius: 50%;
-  overflow: hidden;
-}
-.teacher-eye-ball::before {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 0px;
-  width: 8px;
-  height: 10px;
-  background: #1f2e40;
-  border-radius: 50%;
-}
-.teacher-eye-ball::after {
-  content: "";
-  position: absolute;
-  right: 3px;
-  top: 1px;
-  width: 4px;
-  height: 4px;
-  background: rgba(255,255,255,.95);
-  border-radius: 50%;
-}
-
-.teacher-avatar.speaking .teacher-eye-ball,
-.teacher-avatar.waiting .teacher-eye-ball {
-  animation: teacherBlink 5.3s infinite;
-}
-
-.teacher-brow {
-  position: absolute;
-  top: 72px;
-  width: 34px;
-  height: 8px;
-  border-top: 4px solid rgba(105,65,41,.55);
-  border-radius: 50%;
-  z-index: 10;
-}
-.teacher-brow.left { left: 40px; transform: rotate(-6deg); }
-.teacher-brow.right { right: 40px; transform: rotate(6deg); }
-
-.teacher-nose {
-  position: absolute;
-  left: 50%;
-  top: 113px;
-  transform: translateX(-50%);
-  width: 18px;
-  height: 28px;
-  z-index: 10;
-}
-.teacher-nose::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-right: 3px solid rgba(156,92,68,.22);
-  border-bottom: 3px solid rgba(156,92,68,.16);
-  border-radius: 50%;
-}
-
-.teacher-cheek {
-  position: absolute;
-  top: 138px;
-  width: 28px;
-  height: 16px;
-  background: rgba(255,132,153,.22);
-  border-radius: 50%;
-  z-index: 9;
-}
-.teacher-cheek.left { left: 32px; }
-.teacher-cheek.right { right: 32px; }
-
-.teacher-mouth {
-  position: absolute;
-  left: 50%;
-  top: 154px;
-  transform: translateX(-50%);
-  width: var(--teacher-mouth-width);
-  height: var(--teacher-mouth-open);
-  background: linear-gradient(180deg, #8c2c4e 0%, #5d1734 100%);
-  border-radius: var(--teacher-mouth-radius);
-  z-index: 11;
-  box-shadow:
-    inset 0 -2px 0 rgba(45,7,18,.38),
-    0 2px 6px rgba(0,0,0,.12);
-  transition:
-    width .08s linear,
-    height .08s linear,
-    border-radius .08s linear,
-    transform .08s linear;
-  overflow: hidden;
-}
-
-.teacher-mouth::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: calc(var(--teacher-mouth-width) * .62);
-  height: calc(var(--teacher-mouth-open) * .42);
-  background: rgba(255,179,195,var(--teacher-mouth-inner-opacity));
-  border-radius: 50%;
-}
-
-.teacher-mouth::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -1px;
-  transform: translateX(-50%);
-  width: calc(var(--teacher-mouth-width) * .95);
-  height: 3px;
-  background: rgba(255,220,226,.45);
-  border-radius: 50%;
-}
-
-.teacher-avatar.speaking .teacher-head {
-  animation: teacherHeadBob 1.3s ease-in-out infinite;
-}
-
-.teacher-bust-highlight {
-  position: absolute;
-  left: 50%;
-  bottom: 44px;
-  transform: translateX(-50%);
-  width: 112px;
-  height: 20px;
-  background: rgba(255,255,255,.45);
-  border-radius: 50%;
-  filter: blur(12px);
-  opacity: .45;
+  background: rgba(255,255,255,.04);
 }
 
 .teacher-indicator {
@@ -419,7 +176,7 @@ AVATAR_CSS = r"""
   background: rgba(255,255,255,.05);
   color: #cfd8ef;
   font-size: 13px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 .teacher-indicator::before {
   content: "";
@@ -442,7 +199,7 @@ AVATAR_CSS = r"""
   text-align: center;
   font-size: 14px;
   line-height: 1.55;
-  max-width: 290px;
+  max-width: 320px;
   margin-top: 12px;
   opacity: .95;
 }
@@ -453,108 +210,12 @@ AVATAR_CSS = r"""
   letter-spacing: .2px;
   color: white;
 }
-
-@keyframes teacherBlink {
-  0%, 92%, 100% { transform: scaleY(1); }
-  94%, 96% { transform: scaleY(0.08); }
-}
-
-@keyframes teacherHeadBob {
-  0%, 100% { transform: translateX(-50%) translateY(0px); }
-  50% { transform: translateX(-50%) translateY(2px); }
-}
 """
 
 AVATAR_JS = r"""
 function() {
-  const state = {
-    audioContext: null,
-    analyser: null,
-    dataArray: null,
-    currentAudio: null,
-    rafId: null,
-    sourceMap: new WeakMap(),
-    lastSpeakingAt: 0
-  };
-
   function getAvatar() {
     return document.getElementById("teacher-avatar");
-  }
-
-  function setWaiting() {
-    const avatar = getAvatar();
-    if (!avatar) return;
-    avatar.classList.remove("speaking");
-    avatar.classList.add("waiting");
-    avatar.style.setProperty("--teacher-mouth-open", "8px");
-    avatar.style.setProperty("--teacher-mouth-width", "36px");
-    avatar.style.setProperty("--teacher-mouth-radius", "0 0 20px 20px");
-    avatar.style.setProperty("--teacher-mouth-inner-opacity", "0.55");
-    const indicator = document.getElementById("teacher-indicator-text");
-    if (indicator) indicator.textContent = "Waiting";
-  }
-
-  function setSpeaking(level) {
-    const avatar = getAvatar();
-    if (!avatar) return;
-    avatar.classList.remove("waiting");
-    avatar.classList.add("speaking");
-
-    const px = Math.max(10, Math.min(34, 9 + level * 130));
-    const w = Math.max(30, Math.min(48, 34 + level * 48));
-    avatar.style.setProperty("--teacher-mouth-open", px + "px");
-    avatar.style.setProperty("--teacher-mouth-width", w + "px");
-    avatar.style.setProperty("--teacher-mouth-radius", level > 0.12 ? "40%" : "0 0 18px 18px");
-    avatar.style.setProperty("--teacher-mouth-inner-opacity", String(Math.min(0.95, 0.45 + level * 2.6)));
-
-    const indicator = document.getElementById("teacher-indicator-text");
-    if (indicator) indicator.textContent = "Speaking";
-  }
-
-  function ensureAudioContext() {
-    if (!state.audioContext) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return null;
-      state.audioContext = new Ctx();
-    }
-    if (state.audioContext.state === "suspended") {
-      state.audioContext.resume().catch(() => {});
-    }
-    return state.audioContext;
-  }
-
-  function attachToAudio(audio) {
-    if (!audio || state.sourceMap.has(audio)) return;
-
-    const ctx = ensureAudioContext();
-    if (!ctx) return;
-
-    try {
-      const source = ctx.createMediaElementSource(audio);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.72;
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      state.sourceMap.set(audio, { source, analyser });
-    } catch (e) {
-      // Same audio element cannot be attached twice.
-    }
-  }
-
-  function startTracking(audio) {
-    if (!audio) return;
-    attachToAudio(audio);
-    const node = state.sourceMap.get(audio);
-    if (!node) return;
-
-    state.currentAudio = audio;
-    state.analyser = node.analyser;
-    state.dataArray = new Uint8Array(node.analyser.fftSize);
-
-    if (!state.rafId) {
-      loop();
-    }
   }
 
   function findActiveAudio() {
@@ -567,74 +228,38 @@ function() {
     return null;
   }
 
-  function loop() {
+  function updateTeacherState() {
     const avatar = getAvatar();
-    if (!avatar) {
-      state.rafId = null;
-      return;
-    }
+    if (!avatar) return;
 
+    const indicator = document.getElementById("teacher-indicator-text");
     const activeAudio = findActiveAudio();
-    if (activeAudio && activeAudio !== state.currentAudio) {
-      startTracking(activeAudio);
+
+    if (activeAudio) {
+      avatar.classList.remove("waiting");
+      avatar.classList.add("speaking");
+      if (indicator) indicator.textContent = "Speaking";
+    } else {
+      avatar.classList.remove("speaking");
+      avatar.classList.add("waiting");
+      if (indicator) indicator.textContent = "Waiting";
     }
-
-    if (state.analyser && state.currentAudio && !state.currentAudio.paused && !state.currentAudio.ended) {
-      state.analyser.getByteTimeDomainData(state.dataArray);
-      let sum = 0;
-      for (let i = 0; i < state.dataArray.length; i++) {
-        const v = (state.dataArray[i] - 128) / 128;
-        sum += v * v;
-      }
-      const rms = Math.sqrt(sum / state.dataArray.length);
-
-      if (rms > 0.012) {
-        state.lastSpeakingAt = Date.now();
-        setSpeaking(rms);
-      } else {
-        if (Date.now() - state.lastSpeakingAt < 120) {
-          setSpeaking(0.05);
-        } else {
-          setSpeaking(0.01);
-        }
-      }
-
-      state.rafId = requestAnimationFrame(loop);
-      return;
-    }
-
-    setWaiting();
-    state.currentAudio = null;
-    state.analyser = null;
-    state.dataArray = null;
-    state.rafId = requestAnimationFrame(loop);
   }
 
   function bindAudio(audio) {
     if (!audio || audio.dataset.teacherBound === "1") return;
     audio.dataset.teacherBound = "1";
 
-    attachToAudio(audio);
-
-    audio.addEventListener("play", () => startTracking(audio));
-    audio.addEventListener("playing", () => startTracking(audio));
-    audio.addEventListener("pause", () => {
-      setTimeout(() => {
-        if (!findActiveAudio()) setWaiting();
-      }, 60);
-    });
-    audio.addEventListener("ended", () => {
-      setTimeout(() => {
-        const nextAudio = findActiveAudio();
-        if (nextAudio) startTracking(nextAudio);
-        else setWaiting();
-      }, 60);
-    });
+    audio.addEventListener("play", updateTeacherState);
+    audio.addEventListener("playing", updateTeacherState);
+    audio.addEventListener("pause", () => setTimeout(updateTeacherState, 60));
+    audio.addEventListener("ended", () => setTimeout(updateTeacherState, 60));
   }
 
   function scanAudios() {
     const audios = Array.from(document.querySelectorAll("audio"));
     audios.forEach(bindAudio);
+    updateTeacherState();
   }
 
   const observer = new MutationObserver(() => {
@@ -643,13 +268,7 @@ function() {
   observer.observe(document.body, { childList: true, subtree: true });
 
   scanAudios();
-  setWaiting();
-  loop();
-
-  document.addEventListener("click", () => {
-    ensureAudioContext();
-    scanAudios();
-  }, true);
+  setInterval(updateTeacherState, 150);
 }
 """
 
@@ -1486,43 +1105,11 @@ def update_words_from_text(words_text: str):
     return gr.update(choices=words, value=words[0])
 
 
-TEACHER_HTML = r"""
+TEACHER_HTML = f"""
 <div id="teacher-avatar" class="teacher-avatar teacher-panel waiting">
   <div class="teacher-wrap">
-    <div class="teacher-stage">
-      <div class="teacher-shadow"></div>
-      <div class="teacher-hair-back"></div>
-      <div class="teacher-shoulders"></div>
-      <div class="teacher-neck"></div>
-      <div class="teacher-collar-left"></div>
-      <div class="teacher-collar-right"></div>
-      <div class="teacher-bust-highlight"></div>
-
-      <div class="teacher-head">
-        <div class="teacher-ear left"></div>
-        <div class="teacher-ear right"></div>
-        <div class="teacher-face"></div>
-        <div class="teacher-hair-front"></div>
-        <div class="teacher-fringe-left"></div>
-        <div class="teacher-fringe-right"></div>
-
-        <div class="teacher-brow left"></div>
-        <div class="teacher-brow right"></div>
-
-        <div class="teacher-eye left">
-          <div class="teacher-eye-lid"></div>
-          <div class="teacher-eye-ball"></div>
-        </div>
-        <div class="teacher-eye right">
-          <div class="teacher-eye-lid"></div>
-          <div class="teacher-eye-ball"></div>
-        </div>
-
-        <div class="teacher-nose"></div>
-        <div class="teacher-cheek left"></div>
-        <div class="teacher-cheek right"></div>
-        <div class="teacher-mouth"></div>
-      </div>
+    <div class="teacher-image-frame">
+      <img class="teacher-image" src="{get_teacher_avatar_data_uri()}" alt="English teacher">
     </div>
 
     <div class="teacher-indicator">
@@ -1530,20 +1117,16 @@ TEACHER_HTML = r"""
     </div>
     <div class="teacher-caption">
       <div class="teacher-name">Emily · Your English Teacher</div>
-      <div>When the audio plays, her mouth changes with the voice volume.</div>
+      <div>Using local image: teacher-avatar.gif. The card highlights while audio is playing.</div>
     </div>
   </div>
 </div>
 """
 
 
-with gr.Blocks(
-    title="LLM Voice Tutor",
-    css=AVATAR_CSS,
-    js=AVATAR_JS,
-) as demo:
+with gr.Blocks(title="LLM Voice Tutor") as demo:
     gr.Markdown("# LLM Voice Tutor")
-    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio 本地英语口语练习（支持中文 / 英文 / 日文语音输入）")
+    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio 本地英语口语练习（支持中文 / 英文 / 日文语音输入，老师形象使用你上传的图片）")
 
     llm_provider = gr.Radio(
         choices=["OpenAI API", "Local LM Studio"],
@@ -1639,7 +1222,7 @@ with gr.Blocks(
     )
 
     reply_output = gr.Textbox(
-        label="LLM 回答",
+        label="OpenAI 回答",
         lines=10,
     )
 
@@ -1663,8 +1246,12 @@ with gr.Blocks(
 
 
 if __name__ == "__main__":
+    check_teacher_avatar_file()
     demo.launch(
         server_name="127.0.0.1",
         server_port=7860,
         share=False,
+        allowed_paths=[str(Path(__file__).parent)],
+        css=AVATAR_CSS,
+        js=AVATAR_JS,
     )
