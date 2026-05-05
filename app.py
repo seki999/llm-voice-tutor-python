@@ -39,6 +39,317 @@ DEFAULT_WORDS = [
 TEMP_AUDIO_FILES = []
 
 
+AVATAR_CSS = """
+.teacher-panel {
+  width: 100%;
+  min-height: 390px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255,255,255,.24), transparent 28%),
+    linear-gradient(145deg, #1b2446 0%, #11182f 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  box-shadow: 0 18px 45px rgba(0,0,0,.25);
+  overflow: hidden;
+  position: relative;
+}
+
+.teacher-stage {
+  position: relative;
+  width: 270px;
+  height: 310px;
+}
+
+.teacher-hair-back {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  transform: translateX(-50%);
+  width: 205px;
+  height: 245px;
+  background: linear-gradient(160deg, #f3d58e, #c58d3a);
+  border-radius: 95px 95px 75px 75px;
+  box-shadow: inset -16px -12px 0 rgba(92,50,18,.12);
+}
+
+.teacher-neck {
+  position: absolute;
+  left: 50%;
+  top: 174px;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 54px;
+  background: #f1c7aa;
+  border-radius: 18px;
+}
+
+.teacher-body {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 105px;
+  background: linear-gradient(180deg, #eaf2ff, #95b7ec);
+  border-radius: 70px 70px 20px 20px;
+  border: 1px solid rgba(255,255,255,.35);
+}
+
+.teacher-shirt {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 104px;
+  height: 88px;
+  background: white;
+  clip-path: polygon(0 0, 100% 0, 78% 100%, 22% 100%);
+  opacity: .96;
+}
+
+.teacher-face {
+  position: absolute;
+  left: 50%;
+  top: 34px;
+  transform: translateX(-50%);
+  width: 156px;
+  height: 178px;
+  background: linear-gradient(180deg, #ffd9c0, #f0b995);
+  border-radius: 48% 48% 46% 46%;
+  box-shadow:
+    inset -8px -10px 0 rgba(157,87,52,.08),
+    0 12px 22px rgba(0,0,0,.18);
+}
+
+.teacher-bang {
+  position: absolute;
+  left: 54px;
+  top: 24px;
+  width: 165px;
+  height: 78px;
+  background: linear-gradient(150deg, #f7dc98, #bf8130);
+  border-radius: 75px 75px 38px 38px;
+  transform: rotate(-3deg);
+  z-index: 3;
+}
+
+.teacher-bang::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 34px;
+  width: 58px;
+  height: 84px;
+  background: linear-gradient(160deg, #d69a42, #a76727);
+  border-radius: 40px 20px 60px 20px;
+  transform: rotate(-18deg);
+}
+
+.teacher-eye {
+  position: absolute;
+  top: 92px;
+  width: 20px;
+  height: 13px;
+  background: #304062;
+  border-radius: 50%;
+  z-index: 4;
+}
+
+.teacher-eye.left { left: 91px; }
+.teacher-eye.right { right: 91px; }
+
+.teacher-eye::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  width: 5px;
+  height: 5px;
+  background: white;
+  border-radius: 50%;
+  opacity: .85;
+}
+
+.teacher-avatar.speaking .teacher-eye {
+  animation: teacher-blink 5.2s infinite;
+}
+
+.teacher-brow {
+  position: absolute;
+  top: 79px;
+  width: 28px;
+  height: 6px;
+  border-top: 4px solid rgba(85,51,30,.48);
+  border-radius: 50%;
+  z-index: 4;
+}
+
+.teacher-brow.left { left: 86px; transform: rotate(-4deg); }
+.teacher-brow.right { right: 86px; transform: rotate(4deg); }
+
+.teacher-nose {
+  position: absolute;
+  left: 50%;
+  top: 112px;
+  transform: translateX(-50%);
+  width: 15px;
+  height: 23px;
+  border-right: 3px solid rgba(150,85,58,.22);
+  border-bottom: 3px solid rgba(150,85,58,.18);
+  border-radius: 50%;
+  z-index: 4;
+}
+
+.teacher-mouth {
+  position: absolute;
+  left: 50%;
+  top: 149px;
+  transform: translateX(-50%);
+  width: 42px;
+  height: 10px;
+  background: #a54c5e;
+  border-radius: 0 0 25px 25px;
+  z-index: 4;
+  overflow: hidden;
+  box-shadow: inset 0 -4px 0 rgba(77,18,32,.32);
+}
+
+.teacher-mouth::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 8px;
+  background: #f0a4ae;
+  border-radius: 50%;
+  opacity: .75;
+}
+
+.teacher-avatar.speaking .teacher-mouth {
+  animation: teacher-talk-mouth .18s infinite alternate ease-in-out;
+}
+
+.teacher-avatar.speaking .teacher-head {
+  animation: teacher-head-bob 1.2s infinite ease-in-out;
+}
+
+.teacher-caption {
+  text-align: center;
+  color: #dce6ff;
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0 18px 18px;
+}
+
+.teacher-speaking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #91a4c7;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,.05);
+}
+
+.teacher-speaking-indicator::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.teacher-avatar.speaking .teacher-speaking-indicator::before {
+  background: #18c964;
+  box-shadow: 0 0 0 5px rgba(24,201,100,.16);
+}
+
+.teacher-ear {
+  position: absolute;
+  top: 108px;
+  width: 20px;
+  height: 32px;
+  background: #efbd9e;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.teacher-ear.left { left: 53px; }
+.teacher-ear.right { right: 53px; }
+
+.teacher-cheek {
+  position: absolute;
+  top: 130px;
+  width: 24px;
+  height: 13px;
+  background: rgba(255,133,142,.22);
+  border-radius: 50%;
+  z-index: 4;
+}
+
+.teacher-cheek.left { left: 75px; }
+.teacher-cheek.right { right: 75px; }
+
+@keyframes teacher-talk-mouth {
+  0% { height: 8px; width: 36px; border-radius: 0 0 24px 24px; }
+  45% { height: 18px; width: 40px; border-radius: 45%; }
+  100% { height: 28px; width: 35px; border-radius: 48%; }
+}
+
+@keyframes teacher-head-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(2px); }
+}
+
+@keyframes teacher-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(.08); }
+}
+"""
+
+AVATAR_JS = """
+function() {
+  function updateTeacherSpeakingState() {
+    const avatar = document.getElementById("teacher-avatar");
+    const indicator = document.getElementById("teacher-indicator-text");
+    if (!avatar) return;
+
+    const audios = Array.from(document.querySelectorAll("audio"));
+    const speaking = audios.some(audio => {
+      return audio && !audio.paused && !audio.ended && audio.currentTime > 0;
+    });
+
+    if (speaking) {
+      avatar.classList.add("speaking");
+      if (indicator) indicator.textContent = "Speaking";
+    } else {
+      avatar.classList.remove("speaking");
+      if (indicator) indicator.textContent = "Waiting";
+    }
+  }
+
+  setInterval(updateTeacherSpeakingState, 120);
+
+  document.addEventListener("play", updateTeacherSpeakingState, true);
+  document.addEventListener("pause", updateTeacherSpeakingState, true);
+  document.addEventListener("ended", updateTeacherSpeakingState, true);
+
+  const observer = new MutationObserver(updateTeacherSpeakingState);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  setTimeout(updateTeacherSpeakingState, 500);
+}
+"""
+
+
 def cleanup_temp_audio_files() -> None:
     """
     删除之前生成的临时 TTS 音频文件。
@@ -478,7 +789,44 @@ def update_words_from_text(words_text: str):
     return gr.update(choices=words, value=words[0])
 
 
-with gr.Blocks(title="LLM Voice Tutor") as demo:
+TEACHER_HTML = """
+<div id="teacher-avatar" class="teacher-avatar teacher-panel">
+  <div class="teacher-stage">
+    <div class="teacher-hair-back"></div>
+    <div class="teacher-neck"></div>
+    <div class="teacher-body"></div>
+    <div class="teacher-shirt"></div>
+
+    <div class="teacher-head">
+      <div class="teacher-ear left"></div>
+      <div class="teacher-ear right"></div>
+      <div class="teacher-face"></div>
+      <div class="teacher-bang"></div>
+      <div class="teacher-brow left"></div>
+      <div class="teacher-brow right"></div>
+      <div class="teacher-eye left"></div>
+      <div class="teacher-eye right"></div>
+      <div class="teacher-nose"></div>
+      <div class="teacher-cheek left"></div>
+      <div class="teacher-cheek right"></div>
+      <div class="teacher-mouth"></div>
+    </div>
+  </div>
+  <div class="teacher-speaking-indicator">
+    <span id="teacher-indicator-text">Waiting</span>
+  </div>
+  <div class="teacher-caption">
+    Your English teacher speaks when the audio is playing.
+  </div>
+</div>
+"""
+
+
+with gr.Blocks(
+    title="LLM Voice Tutor",
+    css=AVATAR_CSS,
+    js=AVATAR_JS,
+) as demo:
     gr.Markdown("# LLM Voice Tutor")
     gr.Markdown("Python + Gradio + faster-whisper + LM Studio 本地英语口语练习")
 
@@ -501,6 +849,9 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
             )
 
             explain_btn = gr.Button("单词解释")
+
+        with gr.Column(scale=1):
+            gr.HTML(TEACHER_HTML)
 
         with gr.Column(scale=2):
             explain_output = gr.Textbox(
