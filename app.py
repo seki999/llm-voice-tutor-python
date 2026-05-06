@@ -75,202 +75,63 @@ TEMP_AUDIO_FILES = []
 
 def check_teacher_avatar_file() -> None:
     """
-    Confirm that teacher-avatar.gif exists in the same folder as app.py.
+    Confirm that teacher.gif and teacher_speaking.gif exist in the same folder as app.py.
     """
-    avatar_path = Path(__file__).parent / "teacher-avatar.gif"
-    if avatar_path.exists():
-        print("[Avatar] Found local teacher image:", avatar_path)
+    base_dir = Path(__file__).parent
+
+    idle_path = base_dir / "teacher.gif"
+    speaking_path = base_dir / "teacher_speaking.gif"
+
+    if idle_path.exists():
+        print("[Avatar] Found local idle teacher image:", idle_path)
     else:
-        print("[Avatar] WARNING: teacher-avatar.gif not found next to app.py.")
-        print("[Avatar] Please put teacher-avatar.gif in the same folder as app.py.")
+        print("[Avatar] WARNING: teacher.gif not found next to app.py.")
+        print("[Avatar] Please put teacher.gif in the same folder as app.py.")
+
+    if speaking_path.exists():
+        print("[Avatar] Found local speaking teacher image:", speaking_path)
+    else:
+        print("[Avatar] WARNING: teacher_speaking.gif not found next to app.py.")
+        print("[Avatar] Please put teacher_speaking.gif in the same folder as app.py.")
 
 
-def get_teacher_avatar_data_uri() -> str:
+def get_teacher_idle_path() -> str:
     """
-    Read teacher-avatar.gif from the same folder as app.py and convert it to a data URI.
-    This is more reliable than using /file=teacher-avatar.gif in Gradio 6.
+    Return local teacher.gif path.
     """
-    avatar_path = Path(__file__).parent / "teacher.gif"
+    path = Path(__file__).parent / "teacher.gif"
+    return str(path) if path.exists() else ""
 
-    if not avatar_path.exists():
-        print("[Avatar] WARNING: teacher-avatar.gif not found. Avatar image will be blank.")
-        return ""
+
+def get_teacher_speaking_path() -> str:
+    """
+    Return local teacher_speaking.gif path.
+    """
+    path = Path(__file__).parent / "teacher_speaking.gif"
+    return str(path) if path.exists() else get_teacher_idle_path()
+
+
+def set_teacher_idle():
+    return get_teacher_idle_path()
+
+
+def set_teacher_speaking():
+    return get_teacher_speaking_path()
 
     try:
         data = avatar_path.read_bytes()
         encoded = base64.b64encode(data).decode("ascii")
-        print("[Avatar] Loaded teacher-avatar.gif as base64 data URI.")
+        print("[Avatar] Loaded teacher.gif as base64 data URI.")
         return f"data:image/gif;base64,{encoded}"
     except Exception as e:
-        print("[Avatar] Failed to load teacher-avatar.gif:", e)
+        print("[Avatar] Failed to load teacher.gif:", e)
         return ""
 
 
 # ============================================================
-# Avatar CSS + JS
+# Avatar UI
 # ============================================================
-AVATAR_CSS = r"""
-.teacher-panel {
-  width: 100%;
-  min-height: 460px;
-  border-radius: 28px;
-  border: 1px solid rgba(255,255,255,.14);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255,255,255,.22), transparent 22%),
-    radial-gradient(circle at 15% 15%, rgba(255,255,255,.12), transparent 18%),
-    linear-gradient(180deg, #22345b 0%, #16223f 42%, #121a32 100%);
-  box-shadow:
-    0 24px 60px rgba(0,0,0,.28),
-    inset 0 1px 0 rgba(255,255,255,.05);
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px 16px 24px;
-}
-
-.teacher-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  z-index: 2;
-}
-
-.teacher-image-frame {
-  width: 100%;
-  max-width: 360px;
-  border-radius: 24px;
-  padding: 10px;
-  background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 16px 40px rgba(0,0,0,.22);
-  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-}
-
-.teacher-avatar.speaking .teacher-image-frame {
-  transform: scale(1.02);
-  border-color: rgba(24,201,100,.42);
-  box-shadow:
-    0 18px 42px rgba(0,0,0,.26),
-    0 0 0 4px rgba(24,201,100,.14);
-}
-
-.teacher-image {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  border-radius: 18px;
-  background: rgba(255,255,255,.04);
-}
-
-.teacher-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 13px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.14);
-  background: rgba(255,255,255,.05);
-  color: #cfd8ef;
-  font-size: 13px;
-  margin-top: 14px;
-}
-.teacher-indicator::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #64748b;
-}
-
-.teacher-avatar.speaking .teacher-indicator::before {
-  background: #18c964;
-  box-shadow: 0 0 0 5px rgba(24,201,100,.12);
-}
-.teacher-avatar.waiting .teacher-indicator::before {
-  background: #8aa0c8;
-}
-
-.teacher-caption {
-  color: #e6ecfa;
-  text-align: center;
-  font-size: 14px;
-  line-height: 1.55;
-  max-width: 320px;
-  margin-top: 12px;
-  opacity: .95;
-}
-
-.teacher-name {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: .2px;
-  color: white;
-}
-"""
-
-AVATAR_JS = r"""
-function() {
-  function getAvatar() {
-    return document.getElementById("teacher-avatar");
-  }
-
-  function findActiveAudio() {
-    const audios = Array.from(document.querySelectorAll("audio"));
-    for (const audio of audios) {
-      if (audio && !audio.paused && !audio.ended && audio.currentTime > 0) {
-        return audio;
-      }
-    }
-    return null;
-  }
-
-  function updateTeacherState() {
-    const avatar = getAvatar();
-    if (!avatar) return;
-
-    const indicator = document.getElementById("teacher-indicator-text");
-    const activeAudio = findActiveAudio();
-
-    if (activeAudio) {
-      avatar.classList.remove("waiting");
-      avatar.classList.add("speaking");
-      if (indicator) indicator.textContent = "Speaking";
-    } else {
-      avatar.classList.remove("speaking");
-      avatar.classList.add("waiting");
-      if (indicator) indicator.textContent = "Waiting";
-    }
-  }
-
-  function bindAudio(audio) {
-    if (!audio || audio.dataset.teacherBound === "1") return;
-    audio.dataset.teacherBound = "1";
-
-    audio.addEventListener("play", updateTeacherState);
-    audio.addEventListener("playing", updateTeacherState);
-    audio.addEventListener("pause", () => setTimeout(updateTeacherState, 60));
-    audio.addEventListener("ended", () => setTimeout(updateTeacherState, 60));
-  }
-
-  function scanAudios() {
-    const audios = Array.from(document.querySelectorAll("audio"));
-    audios.forEach(bindAudio);
-    updateTeacherState();
-  }
-
-  const observer = new MutationObserver(() => {
-    scanAudios();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  scanAudios();
-  setInterval(updateTeacherState, 150);
-}
-"""
+# 使用 Gradio 原生 Image + Audio 事件切换图片，避免自定义 JS 导致页面加载问题。
 
 
 # ============================================================
@@ -1004,7 +865,7 @@ def text_to_speech_file(text: str, language: str = "en") -> Optional[str]:
 # ============================================================
 # Gradio event functions
 # ============================================================
-def explain_word(llm_provider: str, target_word: str) -> Tuple[str, Optional[str], Optional[str]]:
+def explain_word(llm_provider: str, target_word: str) -> Tuple[str, Optional[str], Optional[str], str]:
     """
     Word explanation:
     - display clean explanation without *
@@ -1012,7 +873,7 @@ def explain_word(llm_provider: str, target_word: str) -> Tuple[str, Optional[str
     - generate English TTS audio
     """
     if not target_word:
-        return "请先选择或输入一个单词。", None, None
+        return "请先选择或输入一个单词。", None, None, get_teacher_idle_path()
 
     data = call_llm_explain_json(llm_provider, target_word)
     display_text = format_explanation(data)
@@ -1024,7 +885,7 @@ def explain_word(llm_provider: str, target_word: str) -> Tuple[str, Optional[str
     zh_audio = create_tts_file(zh_tts_text, language="zh")
     en_audio = create_tts_file(en_tts_text, language="en")
 
-    return display_text, zh_audio, en_audio
+    return display_text, zh_audio, en_audio, get_teacher_speaking_path()
 
 
 def voice_conversation(llm_provider: str, target_word: str, audio_path: Optional[str]):
@@ -1036,6 +897,7 @@ def voice_conversation(llm_provider: str, target_word: str, audio_path: Optional
             "",
             None,
             gr.update(value=None),
+            get_teacher_idle_path(),
         )
 
     transcript = transcribe_audio(audio_path)
@@ -1046,13 +908,14 @@ def voice_conversation(llm_provider: str, target_word: str, audio_path: Optional
             "",
             None,
             gr.update(value=None),
+            get_teacher_idle_path(),
         )
 
     print("[App] Current conversation transcript sent to OpenAI:", transcript)
     reply = call_llm_text(llm_provider, target_word, transcript, "conversation")
     audio_reply = text_to_speech_file(reply, language="en")
 
-    return transcript, reply, audio_reply, gr.update(value=None)
+    return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
 
 
 def correct_sentence(llm_provider: str, target_word: str, audio_path: Optional[str]):
@@ -1064,6 +927,7 @@ def correct_sentence(llm_provider: str, target_word: str, audio_path: Optional[s
             "",
             None,
             gr.update(value=None),
+            get_teacher_idle_path(),
         )
 
     transcript = transcribe_audio(audio_path)
@@ -1074,13 +938,14 @@ def correct_sentence(llm_provider: str, target_word: str, audio_path: Optional[s
             "",
             None,
             gr.update(value=None),
+            get_teacher_idle_path(),
         )
 
     print("[App] Current correction transcript sent to OpenAI:", transcript)
     reply = call_llm_text(llm_provider, target_word, transcript, "correction")
     audio_reply = text_to_speech_file(reply, language="en")
 
-    return transcript, reply, audio_reply, gr.update(value=None)
+    return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
 
 
 def update_words_from_text(words_text: str):
@@ -1104,24 +969,6 @@ def update_words_from_text(words_text: str):
 
     return gr.update(choices=words, value=words[0])
 
-
-TEACHER_HTML = f"""
-<div id="teacher-avatar" class="teacher-avatar teacher-panel waiting">
-  <div class="teacher-wrap">
-    <div class="teacher-image-frame">
-      <img class="teacher-image" src="{get_teacher_avatar_data_uri()}" alt="English teacher">
-    </div>
-
-    <div class="teacher-indicator">
-      <span id="teacher-indicator-text">Waiting</span>
-    </div>
-    <div class="teacher-caption">
-      <div class="teacher-name">Emily · Your English Teacher</div>
-      <div>Using local image: teacher-avatar.gif. The card highlights while audio is playing.</div>
-    </div>
-  </div>
-</div>
-"""
 
 
 with gr.Blocks(title="LLM Voice Tutor") as demo:
@@ -1171,7 +1018,13 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
             explain_btn = gr.Button("单词解释")
 
         with gr.Column(scale=1):
-            gr.HTML(TEACHER_HTML)
+            teacher_image = gr.Image(
+                value=get_teacher_idle_path(),
+                label="Emily · Your English Teacher",
+                type="filepath",
+                height=420,
+                interactive=False,
+            )
 
         with gr.Column(scale=2):
             explain_output = gr.Textbox(
@@ -1201,7 +1054,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
     explain_btn.click(
         fn=explain_word,
         inputs=[llm_provider, target_word],
-        outputs=[explain_output, explain_audio_zh_output, explain_audio_en_output],
+        outputs=[explain_output, explain_audio_zh_output, explain_audio_en_output, teacher_image],
     )
 
     gr.Markdown("## 语音练习")
@@ -1232,16 +1085,25 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         autoplay=True,
     )
 
+    # Gradio 原生 Audio 事件：播放时显示 teacher_speaking.gif，暂停/停止时显示 teacher.gif。
+    for _audio in [explain_audio_zh_output, explain_audio_en_output, audio_reply_output]:
+        try:
+            _audio.play(fn=set_teacher_speaking, inputs=None, outputs=teacher_image)
+            _audio.pause(fn=set_teacher_idle, inputs=None, outputs=teacher_image)
+            _audio.stop(fn=set_teacher_idle, inputs=None, outputs=teacher_image)
+        except Exception as e:
+            print("[Avatar] Audio event binding skipped:", e)
+
     chat_btn.click(
         fn=voice_conversation,
         inputs=[llm_provider, target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output, audio_input],
+        outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
     )
 
     correction_btn.click(
         fn=correct_sentence,
         inputs=[llm_provider, target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output, audio_input],
+        outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
     )
 
 
@@ -1252,6 +1114,4 @@ if __name__ == "__main__":
         server_port=7860,
         share=False,
         allowed_paths=[str(Path(__file__).parent)],
-        css=AVATAR_CSS,
-        js=AVATAR_JS,
     )
