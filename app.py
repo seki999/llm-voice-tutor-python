@@ -1,4 +1,5 @@
 import atexit
+import asyncio
 import base64
 import json
 import os
@@ -9,6 +10,7 @@ from typing import Dict, Optional, Tuple
 
 import gradio as gr
 import pyttsx3
+import edge_tts
 from faster_whisper import WhisperModel
 from openai import OpenAI
 
@@ -68,8 +70,40 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 # ============================================================
 import requests
 
+# Windows 上 edge-tts / aiohttp 有时会在 Proactor event loop 关闭连接时打印
+# ConnectionResetError。切换到 SelectorEventLoop 通常更稳定。
+if os.name == "nt":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception as e:
+        print("[edge-tts] Failed to set WindowsSelectorEventLoopPolicy:", e)
+
 LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://localhost:1234/v1/chat/completions")
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5-1.5b-instruct-unsloth-bnb-thinker")
+
+
+# ============================================================
+# TTS settings
+# ============================================================
+# TTS 调用方式可以在页面上选择：
+#   1. pyttsx3 本地朗读（默认）
+#   2. edge-tts 在线微软 Neural Voice
+#   3. OpenAI TTS API
+#
+# edge-tts:
+#   pip install edge-tts
+#
+# OpenAI TTS:
+#   使用同一个 OpenAI API Key
+#   可以通过环境变量修改模型和 voice：
+#     $env:OPENAI_TTS_MODEL="gpt-4o-mini-tts"
+#     $env:OPENAI_TTS_VOICE="nova"
+# ============================================================
+OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "nova")
+
+EDGE_TTS_EN_VOICE = os.getenv("EDGE_TTS_EN_VOICE", "en-US-JennyNeural")
+EDGE_TTS_ZH_VOICE = os.getenv("EDGE_TTS_ZH_VOICE", "zh-CN-XiaoxiaoNeural")
 
 
 # ============================================================
@@ -144,15 +178,6 @@ def set_teacher_idle():
 def set_teacher_speaking():
     return get_teacher_speaking_path()
 
-    try:
-        data = avatar_path.read_bytes()
-        encoded = base64.b64encode(data).decode("ascii")
-        print("[Avatar] Loaded teacher.gif as base64 data URI.")
-        return f"data:image/gif;base64,{encoded}"
-    except Exception as e:
-        print("[Avatar] Failed to load teacher.gif:", e)
-        return ""
-
 
 # ============================================================
 # Avatar UI
@@ -183,15 +208,15 @@ atexit.register(cleanup_temp_audio_files)
 
 
 def delete_input_audio_file(audio_path: Optional[str]) -> None:
+    """
+    Gradio 前端有时会在回调结束后继续读取录音文件。
+    如果这里立刻删除，浏览器可能出现 Failed to fetch / ERR_CONTENT_LENGTH_MISMATCH。
+    所以这里只打印日志；真正的连续录音通过 gr.update(value=None) 清空组件来实现。
+    """
     if not audio_path:
         return
 
-    try:
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-            print("[Audio Input] Deleted input audio:", audio_path)
-    except Exception as e:
-        print("[Audio Input] Failed to delete input audio:", audio_path, e)
+    print("[Audio Input] Keep input audio temporarily for Gradio stability:", audio_path)
 
 
 # ============================================================
@@ -890,33 +915,214 @@ def text_to_speech_file(text: str, language: str = "en") -> Optional[str]:
     return create_tts_file(text, language)
 
 
+def contains_cjk(text: str) -> bool:
+    """
+    判断文本里是否包含中文字符。
+    edge-tts 如果用英文 voice 读中文，会读得很差或不读。
+    所以只要包含中文，就优先使用中文 Neural Voice。
+    """
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text or "")
+
+
+async def edge_tts_save_async(text: str, output_path: str, voice: str) -> None:
+    """
+    edge-tts async wrapper.
+    """
+    communicate = edge_tts.Communicate(text=text, voice=voice)
+    await communicate.save(output_path)
+
+
+def edge_tts_file(text: str, language: str = "en", cleanup_before: bool = True) -> Optional[str]:
+    """
+    使用 edge-tts 生成 mp3。
+    注意：edge-tts 需要联网，但生成的是完整 mp3 文件，之后在本地播放。
+    """
+    global TEMP_AUDIO_FILES
+
+    text = clean_markdown_stars(text)
+
+    if not text:
+        return None
+
+    if cleanup_before:
+        cleanup_temp_audio_files()
+
+    output_path = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mp3",
+    ).name
+
+    # 关键修正：
+    # 即使调用方传入 language="en"，只要 LLM 回复中包含中文，
+    # edge-tts 就使用中文 Neural Voice，否则英文 voice 会把中文读得很差或直接不读。
+    if language == "zh" or contains_cjk(text):
+        voice = EDGE_TTS_ZH_VOICE
+        print("[edge-tts] Chinese text detected. Use Chinese voice.")
+    else:
+        voice = EDGE_TTS_EN_VOICE
+
+    try:
+        print("[edge-tts] Voice:", voice)
+        asyncio.run(edge_tts_save_async(text, output_path, voice))
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1024:
+            raise RuntimeError("edge-tts generated audio is empty or too small")
+
+        TEMP_AUDIO_FILES.append(output_path)
+        print("[edge-tts] Saved audio:", output_path)
+        return output_path
+
+    except Exception as e:
+        print("[edge-tts] Error:", e)
+
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except Exception:
+            pass
+
+        print("[edge-tts] Falling back to pyttsx3.")
+        if cleanup_before:
+            return text_to_speech_file(text, language=language)
+        return create_tts_file(text, language=language)
+
+def openai_tts_file(text: str, language: str = "en", cleanup_before: bool = True) -> Optional[str]:
+    """
+    使用 OpenAI TTS API 生成 mp3。
+    使用同一个 OPENAI_API_KEY / openai_api_key.txt。
+    """
+    global TEMP_AUDIO_FILES
+
+    text = clean_markdown_stars(text)
+
+    if not text:
+        return None
+
+    if client is None:
+        print("[OpenAI TTS] No OpenAI API Key. Falling back to pyttsx3.")
+        if cleanup_before:
+            return text_to_speech_file(text, language=language)
+        return create_tts_file(text, language=language)
+
+    if cleanup_before:
+        cleanup_temp_audio_files()
+
+    output_path = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mp3",
+    ).name
+
+    try:
+        print("[OpenAI TTS] Model:", OPENAI_TTS_MODEL)
+        print("[OpenAI TTS] Voice:", OPENAI_TTS_VOICE)
+
+        # 推荐方式：完整生成音频文件后再播放，避免 buffer / 丢开头。
+        with client.audio.speech.with_streaming_response.create(
+            model=OPENAI_TTS_MODEL,
+            voice=OPENAI_TTS_VOICE,
+            input=text,
+            response_format="mp3",
+        ) as response:
+            response.stream_to_file(output_path)
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1024:
+            raise RuntimeError("OpenAI TTS generated audio is empty or too small")
+
+        TEMP_AUDIO_FILES.append(output_path)
+        print("[OpenAI TTS] Saved audio:", output_path)
+        return output_path
+
+    except Exception as e:
+        print("[OpenAI TTS] Error:", e)
+
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except Exception:
+            pass
+
+        print("[OpenAI TTS] Falling back to pyttsx3.")
+        if cleanup_before:
+            return text_to_speech_file(text, language=language)
+        return create_tts_file(text, language=language)
+
+def synthesize_tts_file(tts_provider: str, text: str, language: str = "en", cleanup_before: bool = True) -> Optional[str]:
+    """
+    页面选择的 TTS 调用入口。
+
+    tts_provider:
+      - pyttsx3
+      - edge-tts
+      - OpenAI TTS API
+    """
+    if tts_provider == "edge-tts":
+        return edge_tts_file(text, language=language, cleanup_before=cleanup_before)
+
+    if tts_provider == "OpenAI TTS API":
+        return openai_tts_file(text, language=language, cleanup_before=cleanup_before)
+
+    if cleanup_before:
+        return text_to_speech_file(text, language=language)
+
+    return create_tts_file(text, language=language)
 # ============================================================
 # Gradio event functions
 # ============================================================
-def explain_word(llm_provider: str, target_word: str) -> Tuple[str, Optional[str], Optional[str], str]:
+def make_explanation_combined_tts_text(data: Dict[str, str]) -> str:
+    """
+    edge-tts / OpenAI TTS API 用：
+    中英混合时不再拆成两个音频，而是一次生成完整朗读音频。
+    """
+    lines = [
+        f"单词：{data.get('word', '')}",
+        f"中文意思：{data.get('meaning_cn', '')}",
+        f"词性：{data.get('part_of_speech_cn', '')}",
+        f"常见用法：{data.get('usage_cn', '')}",
+        f"英文例句：{data.get('example_en', '')}",
+        f"中文翻译：{data.get('example_cn', '')}",
+        f"练习问题：{data.get('practice_question_en', '')}",
+        f"{data.get('practice_question_cn', '')}",
+    ]
+    return clean_markdown_stars("。".join([line for line in lines if line.strip()]))
+
+
+def explain_word(llm_provider: str, tts_provider: str, target_word: str) -> Tuple[str, Optional[str], Optional[str], str]:
     """
     Word explanation:
-    - display clean explanation without *
-    - generate Chinese TTS audio
-    - generate English TTS audio
+    - pyttsx3：中文解释、英文例句分开生成两个音频
+    - edge-tts / OpenAI TTS API：中英混合内容合并成一个音频
     """
     if not target_word:
         return "请先选择或输入一个单词。", None, None, get_teacher_idle_path()
 
     data = call_llm_explain_json(llm_provider, target_word)
     display_text = format_explanation(data)
-    zh_tts_text, en_tts_text = make_explanation_tts_texts(data)
 
-    # For explanation, generate two audio files as one group.
-    # Do not clean between Chinese and English generation.
     cleanup_temp_audio_files()
-    zh_audio = create_tts_file(zh_tts_text, language="zh")
-    en_audio = create_tts_file(en_tts_text, language="en")
 
-    return display_text, zh_audio, en_audio, get_teacher_speaking_path()
+    if tts_provider == "pyttsx3":
+        # pyttsx3 对中英混合自动切换 voice 不好，所以仍然分开朗读。
+        zh_tts_text, en_tts_text = make_explanation_tts_texts(data)
+        zh_audio = synthesize_tts_file(tts_provider, zh_tts_text, language="zh", cleanup_before=False)
+        en_audio = synthesize_tts_file(tts_provider, en_tts_text, language="en", cleanup_before=False)
+        # UI 中第一个音频自动播放，第二个音频不自动播放，避免中英文同时播放。
+        return display_text, zh_audio, en_audio, get_teacher_speaking_path()
+
+    # edge-tts / OpenAI TTS API：
+    # 使用一个完整音频朗读中英混合内容，不再拆成中文和英文两个音频。
+    combined_tts_text = make_explanation_combined_tts_text(data)
+    lang = "zh" if contains_cjk(combined_tts_text) else "en"
+    combined_audio = synthesize_tts_file(
+        tts_provider,
+        combined_tts_text,
+        language=lang,
+        cleanup_before=False,
+    )
+
+    return display_text, combined_audio, None, get_teacher_speaking_path()
 
 
-def voice_conversation(llm_provider: str, target_word: str, audio_path: Optional[str]):
+def voice_conversation(llm_provider: str, tts_provider: str, target_word: str, audio_path: Optional[str]):
     print("[App] voice_conversation audio_path =", audio_path)
 
     if not audio_path:
@@ -941,12 +1147,12 @@ def voice_conversation(llm_provider: str, target_word: str, audio_path: Optional
 
     print("[App] Current conversation transcript sent to OpenAI:", transcript)
     reply = call_llm_text(llm_provider, target_word, transcript, "conversation")
-    audio_reply = text_to_speech_file(reply, language="en")
+    audio_reply = synthesize_tts_file(tts_provider, reply, language="en")
 
     return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
 
 
-def correct_sentence(llm_provider: str, target_word: str, audio_path: Optional[str]):
+def correct_sentence(llm_provider: str, tts_provider: str, target_word: str, audio_path: Optional[str]):
     print("[App] correct_sentence audio_path =", audio_path)
 
     if not audio_path:
@@ -971,7 +1177,7 @@ def correct_sentence(llm_provider: str, target_word: str, audio_path: Optional[s
 
     print("[App] Current correction transcript sent to OpenAI:", transcript)
     reply = call_llm_text(llm_provider, target_word, transcript, "correction")
-    audio_reply = text_to_speech_file(reply, language="en")
+    audio_reply = synthesize_tts_file(tts_provider, reply, language="en")
 
     return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
 
@@ -1001,13 +1207,20 @@ def update_words_from_text(words_text: str):
 
 with gr.Blocks(title="LLM Voice Tutor") as demo:
     gr.Markdown("# LLM Voice Tutor")
-    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio 本地英语口语练习（支持中文 / 英文语音输入，老师形象使用本地 GIF）")
+    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio + 多种 TTS 本地英语口语练习（支持中文 / 英文语音输入，老师形象使用本地 GIF）")
 
     llm_provider = gr.Radio(
         choices=["OpenAI API", "Local LM Studio"],
-        value="Local LM Studio",
+        value="OpenAI API",
         label="LLM 调用方式",
-        info="默认使用 Local LM Studio；如果选择 OpenAI API，请准备 openai_api_key.txt 或 OPENAI_API_KEY。",
+        info="默认使用 OpenAI API；请准备 openai_api_key.txt 或 OPENAI_API_KEY。需要本地模型时可切换到 Local LM Studio。",
+    )
+
+    tts_provider = gr.Radio(
+        choices=["pyttsx3", "edge-tts", "OpenAI TTS API"],
+        value="edge-tts",
+        label="TTS 朗读方式",
+        info="默认使用 edge-tts；edge-tts 和 OpenAI TTS API 需要联网。需要完全本地离线朗读时可切换到 pyttsx3。",
     )
 
     with gr.Accordion("本地 LLM 连接信息（只读，修改请用环境变量）", open=False):
@@ -1022,6 +1235,31 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 `$env:LOCAL_LLM_URL="http://localhost:1234/v1/chat/completions"`
 
 `$env:LOCAL_LLM_MODEL="你的本地模型名"`
+"""
+        )
+
+    with gr.Accordion("TTS 连接信息（只读，修改请用环境变量）", open=False):
+        gr.Markdown(
+            f"""
+当前 OpenAI TTS 模型：`{OPENAI_TTS_MODEL}`
+
+当前 OpenAI TTS Voice：`{OPENAI_TTS_VOICE}`
+
+当前 edge-tts 英文 Voice：`{EDGE_TTS_EN_VOICE}`
+
+当前 edge-tts 中文 Voice：`{EDGE_TTS_ZH_VOICE}`
+
+注意：edge-tts 遇到中英混合文本时，会优先使用中文 Voice，以保证中文可以正常朗读。
+
+如需修改，在 PowerShell 启动前设置：
+
+`$env:OPENAI_TTS_MODEL="gpt-4o-mini-tts"`
+
+`$env:OPENAI_TTS_VOICE="nova"`
+
+`$env:EDGE_TTS_EN_VOICE="en-US-JennyNeural"`
+
+`$env:EDGE_TTS_ZH_VOICE="zh-CN-XiaoxiaoNeural"`
 """
         )
 
@@ -1056,21 +1294,21 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
         with gr.Column(scale=2):
             explain_output = gr.Textbox(
-                label="单词解释（已去掉 *，中英文分离朗读）",
+                label="单词解释（已去掉 *；edge/OpenAI 合并朗读，pyttsx3 分开朗读）",
                 lines=10,
             )
 
             with gr.Row():
                 explain_audio_zh_output = gr.Audio(
-                    label="中文解释朗读",
+                    label="单词解释朗读（edge-tts / OpenAI TTS 合并朗读；pyttsx3 中文解释）",
                     type="filepath",
-                    autoplay=False,
+                    autoplay=True,
                 )
 
                 explain_audio_en_output = gr.Audio(
-                    label="英文例句朗读",
+                    label="英文例句朗读（仅 pyttsx3 分开朗读时使用；需手动播放）",
                     type="filepath",
-                    autoplay=True,
+                    autoplay=False,
                 )
 
     update_words_btn.click(
@@ -1081,7 +1319,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
     explain_btn.click(
         fn=explain_word,
-        inputs=[llm_provider, target_word],
+        inputs=[llm_provider, tts_provider, target_word],
         outputs=[explain_output, explain_audio_zh_output, explain_audio_en_output, teacher_image],
     )
 
@@ -1124,13 +1362,13 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
     chat_btn.click(
         fn=voice_conversation,
-        inputs=[llm_provider, target_word, audio_input],
+        inputs=[llm_provider, tts_provider, target_word, audio_input],
         outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
     )
 
     correction_btn.click(
         fn=correct_sentence,
-        inputs=[llm_provider, target_word, audio_input],
+        inputs=[llm_provider, tts_provider, target_word, audio_input],
         outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
     )
 
