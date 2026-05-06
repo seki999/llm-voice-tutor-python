@@ -25,7 +25,33 @@ from openai import OpenAI
 #   pip install gradio faster-whisper pyttsx3 openai
 # ============================================================
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# OpenAI API Key 读取顺序：
+# 1. 优先读取环境变量 OPENAI_API_KEY
+# 2. 如果环境变量没有设置，则读取 app.py 同目录下的 openai_api_key.txt
+#
+# 注意：
+# openai_api_key.txt 只放在本地，不要上传到 GitHub。
+OPENAI_API_KEY_FILE = Path(__file__).parent / "openai_api_key.txt"
+
+
+def load_openai_api_key() -> Optional[str]:
+    env_key = os.getenv("OPENAI_API_KEY")
+    if env_key and env_key.strip():
+        print("[OpenAI] Loaded API key from environment variable.")
+        return env_key.strip()
+
+    if OPENAI_API_KEY_FILE.exists():
+        key = OPENAI_API_KEY_FILE.read_text(encoding="utf-8").strip()
+        if key:
+            print("[OpenAI] Loaded API key from local file:", OPENAI_API_KEY_FILE)
+            return key
+
+    print("[OpenAI] No API key found. Use OPENAI_API_KEY or openai_api_key.txt.")
+    return None
+
+
+OPENAI_API_KEY = load_openai_api_key()
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
@@ -49,7 +75,7 @@ LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5-1.5b-instruct-unsloth-bn
 # ============================================================
 # Whisper settings
 # ============================================================
-# "small" 比 "base" 慢一点，但中英日识别更稳。
+# "small" 比 "base" 慢一点，但中英文识别更稳。
 # 如果你的 Windows 电脑太慢，可以改回 "base"。
 whisper_model = WhisperModel(
     "small",
@@ -258,8 +284,9 @@ def transcribe_audio(audio_path: Optional[str]) -> str:
     try:
         segments, info = whisper_model.transcribe(
             audio_path,
-            # 不固定 language="en"，让 Whisper 自动识别英语 / 汉语 / 日语。
+            # 不固定 language="en"，让 Whisper 自动识别英语 / 汉语。
             # 这样你可以用中文问问题，也可以用英语练习。
+            initial_prompt="The speech may be English or Chinese.",
             vad_filter=False,
             beam_size=5,
         )
@@ -291,7 +318,8 @@ def call_openai_text(target_word: str, transcript: str, mode: str) -> str:
     if client is None:
         return (
             "OpenAI API Key 未设置。\n\n"
-            "请在 PowerShell 中这样启动：\n"
+            "请把 key 写入 app.py 同目录下的 openai_api_key.txt，\n"
+            "或者在 PowerShell 中这样启动：\n"
             '$env:OPENAI_API_KEY="sk-你的key"\n'
             "python app.py"
         )
@@ -302,17 +330,17 @@ def call_openai_text(target_word: str, transcript: str, mode: str) -> str:
         system_prompt = """
 You are a friendly English conversation partner and vocabulary tutor.
 
-The user is a Chinese/Japanese bilingual learner practicing English.
-The user may speak English, Chinese, or Japanese.
+The user is a Chinese bilingual learner practicing English.
+The user may speak English or Chinese.
 
 Very important:
 - Answer ONLY the current speech transcript.
 - Do NOT reuse previous explanations, previous examples, or previous answers.
 - The current transcript is the user's latest message.
-- If the current transcript is Chinese or Japanese, understand the meaning and help the user express it naturally in English.
+- If the current transcript is Chinese, understand the meaning and help the user express it naturally in English.
 - If the current transcript asks a new question, answer that new question directly.
 - If the current transcript is an English sentence attempt, respond to that sentence.
-- If the transcript says "this word", "the word", "new word", "这个单词", "这个词", "这个英语单词", "この単語", or a similar-sounding wrong word, understand it as the target word.
+- If the transcript says "this word", "the word", "new word", "这个单词", "这个词", "这个英语单词", or a similar-sounding wrong word, understand it as the target word.
 - Keep your reply fresh and specific to the current transcript.
 - Encourage the user to use the target word naturally.
 - Keep your English reply short: 1-3 sentences.
@@ -320,7 +348,7 @@ Very important:
 - Do not use markdown asterisks.
 
 Preferred response style:
-1. If the user asks in Chinese/Japanese, answer briefly in Chinese first if needed.
+1. If the user asks in Chinese, answer briefly in Chinese first if needed.
 2. Then give a natural English expression or reply.
 3. Ask one simple English follow-up question when appropriate.
 """
@@ -332,9 +360,9 @@ CURRENT_USER_TRANSCRIPT:
 {transcript}
 
 Instruction:
-The transcript may be English, Chinese, or Japanese.
+The transcript may be English or Chinese.
 Reply to CURRENT_USER_TRANSCRIPT only.
-If the user used Chinese or Japanese, help convert their idea into natural spoken English.
+If the user used Chinese, help convert their idea into natural spoken English.
 Do not repeat a previous answer.
 """
 
@@ -342,15 +370,15 @@ Do not repeat a previous answer.
         system_prompt = """
 You are a friendly English sentence correction and translation tutor.
 
-The user is a Chinese/Japanese bilingual learner practicing English.
-The user may speak English, Chinese, or Japanese.
+The user is a Chinese bilingual learner practicing English.
+The user may speak English or Chinese.
 
 Very important:
 - Work ONLY on the current speech transcript.
 - Do NOT reuse previous corrections, previous examples, or previous answers.
 - The current transcript is the user's latest sentence attempt or latest idea.
 - If the current transcript is English, correct it naturally.
-- If the current transcript is Chinese or Japanese, translate the user's intended meaning into natural spoken English.
+- If the current transcript is Chinese, translate the user's intended meaning into natural spoken English.
 - Try to include the target word in the corrected English sentence if appropriate.
 - Explain the correction or translation briefly in Chinese.
 - Ask one simple follow-up question in English using the target word.
@@ -365,8 +393,8 @@ CURRENT_USER_TRANSCRIPT:
 {transcript}
 
 Instruction:
-The transcript may be English, Chinese, or Japanese.
-If it is Chinese or Japanese, translate the intended meaning into natural spoken English.
+The transcript may be English or Chinese.
+If it is Chinese, translate the intended meaning into natural spoken English.
 Correct or translate CURRENT_USER_TRANSCRIPT only.
 Do not repeat a previous answer.
 """
@@ -411,7 +439,7 @@ def call_openai_explain_json(target_word: str) -> Dict[str, str]:
             "word": target_word,
             "meaning_cn": "OpenAI API Key 未设置。",
             "part_of_speech_cn": "",
-            "usage_cn": "请在 PowerShell 中设置 OPENAI_API_KEY 后重新启动。",
+            "usage_cn": "请把 key 写入 app.py 同目录下的 openai_api_key.txt，或设置 OPENAI_API_KEY 后重新启动。",
             "example_en": "",
             "example_cn": "",
             "practice_question_en": "",
@@ -516,17 +544,17 @@ def call_local_llm_text(target_word: str, transcript: str, mode: str) -> str:
         system_prompt = """
 You are a friendly English conversation partner and vocabulary tutor.
 
-The user is a Chinese/Japanese bilingual learner practicing English.
-The user may speak English, Chinese, or Japanese.
+The user is a Chinese bilingual learner practicing English.
+The user may speak English or Chinese.
 
 Very important:
 - Answer ONLY the current speech transcript.
 - Do NOT reuse previous explanations, previous examples, or previous answers.
 - The current transcript is the user's latest message.
-- If the current transcript is Chinese or Japanese, understand the meaning and help the user express it naturally in English.
+- If the current transcript is Chinese, understand the meaning and help the user express it naturally in English.
 - If the current transcript asks a new question, answer that new question directly.
 - If the current transcript is an English sentence attempt, respond to that sentence.
-- If the transcript says "this word", "the word", "new word", "这个单词", "这个词", "这个英语单词", "この単語", or a similar-sounding wrong word, understand it as the target word.
+- If the transcript says "this word", "the word", "new word", "这个单词", "这个词", "这个英语单词", or a similar-sounding wrong word, understand it as the target word.
 - Keep your reply fresh and specific to the current transcript.
 - Encourage the user to use the target word naturally.
 - Keep your English reply short: 1-3 sentences.
@@ -541,9 +569,9 @@ CURRENT_USER_TRANSCRIPT:
 {transcript}
 
 Instruction:
-The transcript may be English, Chinese, or Japanese.
+The transcript may be English or Chinese.
 Reply to CURRENT_USER_TRANSCRIPT only.
-If the user used Chinese or Japanese, help convert their idea into natural spoken English.
+If the user used Chinese, help convert their idea into natural spoken English.
 Do not repeat a previous answer.
 """
 
@@ -551,15 +579,15 @@ Do not repeat a previous answer.
         system_prompt = """
 You are a friendly English sentence correction and translation tutor.
 
-The user is a Chinese/Japanese bilingual learner practicing English.
-The user may speak English, Chinese, or Japanese.
+The user is a Chinese bilingual learner practicing English.
+The user may speak English or Chinese.
 
 Very important:
 - Work ONLY on the current speech transcript.
 - Do NOT reuse previous corrections, previous examples, or previous answers.
 - The current transcript is the user's latest sentence attempt or latest idea.
 - If the current transcript is English, correct it naturally.
-- If the current transcript is Chinese or Japanese, translate the user's intended meaning into natural spoken English.
+- If the current transcript is Chinese, translate the user's intended meaning into natural spoken English.
 - Try to include the target word in the corrected English sentence if appropriate.
 - Explain the correction or translation briefly in Chinese.
 - Ask one simple follow-up question in English using the target word.
@@ -574,8 +602,8 @@ CURRENT_USER_TRANSCRIPT:
 {transcript}
 
 Instruction:
-The transcript may be English, Chinese, or Japanese.
-If it is Chinese or Japanese, translate the intended meaning into natural spoken English.
+The transcript may be English or Chinese.
+If it is Chinese, translate the intended meaning into natural spoken English.
 Correct or translate CURRENT_USER_TRANSCRIPT only.
 Do not repeat a previous answer.
 """
@@ -973,13 +1001,13 @@ def update_words_from_text(words_text: str):
 
 with gr.Blocks(title="LLM Voice Tutor") as demo:
     gr.Markdown("# LLM Voice Tutor")
-    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio 本地英语口语练习（支持中文 / 英文 / 日文语音输入，老师形象使用你上传的图片）")
+    gr.Markdown("Python + Gradio + faster-whisper + OpenAI API / Local LM Studio 本地英语口语练习（支持中文 / 英文语音输入，老师形象使用本地 GIF）")
 
     llm_provider = gr.Radio(
         choices=["OpenAI API", "Local LM Studio"],
-        value="OpenAI API",
+        value="Local LM Studio",
         label="LLM 调用方式",
-        info="默认使用 OpenAI API；如果选择 Local LM Studio，请先启动 LM Studio Server。",
+        info="默认使用 Local LM Studio；如果选择 OpenAI API，请准备 openai_api_key.txt 或 OPENAI_API_KEY。",
     )
 
     with gr.Accordion("本地 LLM 连接信息（只读，修改请用环境变量）", open=False):
@@ -1062,7 +1090,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
     audio_input = gr.Audio(
         sources=["microphone"],
         type="filepath",
-        label="录音输入（可说英语 / 中文 / 日语）",
+        label="录音输入（可说英语 / 中文）",
     )
 
     with gr.Row():
@@ -1070,12 +1098,12 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         correction_btn = gr.Button("纠正我的造句")
 
     transcript_output = gr.Textbox(
-        label="Whisper 识别结果（自动识别中/英/日）",
+        label="Whisper 识别结果（自动识别中/英）",
         lines=4,
     )
 
     reply_output = gr.Textbox(
-        label="OpenAI 回答",
+        label="LLM 回答",
         lines=10,
     )
 
