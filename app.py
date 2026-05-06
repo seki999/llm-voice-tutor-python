@@ -1065,6 +1065,94 @@ def synthesize_tts_file(tts_provider: str, text: str, language: str = "en", clea
         return text_to_speech_file(text, language=language)
 
     return create_tts_file(text, language=language)
+
+
+# ============================================================
+# Conversation history helpers
+# ============================================================
+def append_conversation_history(
+    history_text: str,
+    mode_label: str,
+    target_word: str,
+    transcript: str,
+    reply: str,
+) -> str:
+    """
+    Append one LLM interaction to page-visible text history.
+    This history is only kept in the current Gradio session.
+    Every app restart starts with empty history.
+    """
+    history_text = history_text or ""
+
+    item = (
+        f"---\n"
+        f"模式：{mode_label}\n"
+        f"练习单词：{target_word or ''}\n"
+        f"我说的话 / 识别结果：\n{transcript or ''}\n\n"
+        f"LLM 回答：\n{reply or ''}\n"
+    )
+
+    if history_text.strip():
+        return history_text.rstrip() + "\n\n" + item
+
+    return item
+
+
+def clear_conversation_history():
+    """
+    Clear the page-visible conversation history.
+    """
+    return "", ""
+
+
+def export_conversation_history(history_text: str) -> Optional[str]:
+    """
+    Export conversation history to a local txt file and return the filepath for Gradio download.
+    """
+    history_text = history_text or ""
+
+    if not history_text.strip():
+        history_text = "当前还没有对话历史。"
+
+    output_path = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".txt",
+        mode="w",
+        encoding="utf-8",
+    ).name
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(history_text)
+
+    print("[History] Exported conversation history:", output_path)
+    return output_path
+
+
+# ============================================================
+# UI CSS
+# ============================================================
+CUSTOM_CSS = """
+/* Make important text areas easier to read */
+textarea {
+  font-size: 18px !important;
+  line-height: 1.65 !important;
+}
+
+label, .wrap label {
+  font-size: 15px !important;
+}
+
+/* Make markdown output text a little larger */
+.prose, .markdown {
+  font-size: 16px !important;
+}
+
+/* Keep audio components compact */
+audio {
+  width: 100% !important;
+}
+"""
+
 # ============================================================
 # Gradio event functions
 # ============================================================
@@ -1122,7 +1210,7 @@ def explain_word(llm_provider: str, tts_provider: str, target_word: str) -> Tupl
     return display_text, combined_audio, None, get_teacher_speaking_path()
 
 
-def voice_conversation(llm_provider: str, tts_provider: str, target_word: str, audio_path: Optional[str]):
+def voice_conversation(llm_provider: str, tts_provider: str, target_word: str, audio_path: Optional[str], history_text: str):
     print("[App] voice_conversation audio_path =", audio_path)
 
     if not audio_path:
@@ -1132,6 +1220,8 @@ def voice_conversation(llm_provider: str, tts_provider: str, target_word: str, a
             None,
             gr.update(value=None),
             get_teacher_idle_path(),
+            history_text or "",
+            history_text or "",
         )
 
     transcript = transcribe_audio(audio_path)
@@ -1143,43 +1233,43 @@ def voice_conversation(llm_provider: str, tts_provider: str, target_word: str, a
             None,
             gr.update(value=None),
             get_teacher_idle_path(),
+            history_text or "",
+            history_text or "",
         )
 
     print("[App] Current conversation transcript sent to OpenAI:", transcript)
     reply = call_llm_text(llm_provider, target_word, transcript, "conversation")
     audio_reply = synthesize_tts_file(tts_provider, reply, language="en")
+    new_history = append_conversation_history(
+        history_text,
+        "和 LLM 对话",
+        target_word,
+        transcript,
+        reply,
+    )
 
-    return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
+    return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path(), new_history, new_history
 
 
-def correct_sentence(llm_provider: str, tts_provider: str, target_word: str, audio_path: Optional[str]):
-    print("[App] correct_sentence audio_path =", audio_path)
 
-    if not audio_path:
-        return (
-            "没有收到录音文件。请先在麦克风控件里录音，停止录音后再点击按钮。",
-            "",
-            None,
-            gr.update(value=None),
-            get_teacher_idle_path(),
-        )
-
-    transcript = transcribe_audio(audio_path)
-
-    if not transcript:
-        return (
-            "Whisper 没有识别到语音。请说长一点、声音大一点，并确认麦克风权限正常。",
-            "",
-            None,
-            gr.update(value=None),
-            get_teacher_idle_path(),
-        )
-
-    print("[App] Current correction transcript sent to OpenAI:", transcript)
-    reply = call_llm_text(llm_provider, target_word, transcript, "correction")
-    audio_reply = synthesize_tts_file(tts_provider, reply, language="en")
-
-    return transcript, reply, audio_reply, gr.update(value=None), get_teacher_speaking_path()
+def voice_conversation_on_stop(
+    llm_provider: str,
+    tts_provider: str,
+    target_word: str,
+    audio_path: Optional[str],
+    history_text: str,
+):
+    """
+    Triggered automatically when the microphone recording is stopped.
+    This merges the recording Stop action and the old "和 LLM 对话" button.
+    """
+    return voice_conversation(
+        llm_provider,
+        tts_provider,
+        target_word,
+        audio_path,
+        history_text,
+    )
 
 
 def update_words_from_text(words_text: str):
@@ -1221,6 +1311,12 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         value="edge-tts",
         label="TTS 朗读方式",
         info="默认使用 edge-tts；edge-tts 和 OpenAI TTS API 需要联网。需要完全本地离线朗读时可切换到 pyttsx3。",
+    )
+
+
+    gr.HTML(
+        '<a href="https://platform.openai.com/usage" target="_blank" '
+        'style="font-size:14px; text-decoration: underline;">API Usage</a>'
     )
 
     with gr.Accordion("本地 LLM 连接信息（只读，修改请用环境变量）", open=False):
@@ -1331,9 +1427,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         label="录音输入（可说英语 / 中文）",
     )
 
-    with gr.Row():
-        chat_btn = gr.Button("和 LLM 对话")
-        correction_btn = gr.Button("纠正我的造句")
+    gr.Markdown("录音后点击录音控件里的停止按钮，会自动发送给 LLM 对话。")
 
     transcript_output = gr.Textbox(
         label="Whisper 识别结果（自动识别中/英）",
@@ -1351,6 +1445,39 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         autoplay=True,
     )
 
+    gr.Markdown("## 对话历史记录")
+
+    conversation_history_state = gr.State("")
+
+    conversation_history_output = gr.Textbox(
+        label="对话历史记录（本次启动期间保留，可手动清空，可导出）",
+        value="",
+        lines=14,
+        interactive=False,
+    )
+
+    with gr.Row():
+        clear_history_btn = gr.Button("清空历史记录")
+        export_history_btn = gr.Button("导出历史记录")
+
+    history_file_output = gr.File(
+        label="下载导出的历史记录",
+        visible=True,
+    )
+
+    clear_history_btn.click(
+        fn=clear_conversation_history,
+        inputs=None,
+        outputs=[conversation_history_state, conversation_history_output],
+    )
+
+    export_history_btn.click(
+        fn=export_conversation_history,
+        inputs=[conversation_history_state],
+        outputs=[history_file_output],
+    )
+
+
     # Gradio 原生 Audio 事件：播放时显示 teacher_speaking.gif，暂停/停止时显示 teacher.gif。
     for _audio in [explain_audio_zh_output, explain_audio_en_output, audio_reply_output]:
         try:
@@ -1360,17 +1487,34 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         except Exception as e:
             print("[Avatar] Audio event binding skipped:", e)
 
-    chat_btn.click(
-        fn=voice_conversation,
-        inputs=[llm_provider, tts_provider, target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
-    )
+    # 录音停止时自动执行“和 LLM 对话”
+    # Gradio 版本差异较大：优先使用 stop_recording；如果没有，则尝试 change 事件。
+    _conversation_outputs = [
+        transcript_output,
+        reply_output,
+        audio_reply_output,
+        audio_input,
+        teacher_image,
+        conversation_history_state,
+        conversation_history_output,
+    ]
 
-    correction_btn.click(
-        fn=correct_sentence,
-        inputs=[llm_provider, tts_provider, target_word, audio_input],
-        outputs=[transcript_output, reply_output, audio_reply_output, audio_input, teacher_image],
-    )
+    try:
+        audio_input.stop_recording(
+            fn=voice_conversation_on_stop,
+            inputs=[llm_provider, tts_provider, target_word, audio_input, conversation_history_state],
+            outputs=_conversation_outputs,
+        )
+    except Exception as e:
+        print("[UI] audio_input.stop_recording binding failed, fallback to change:", e)
+        try:
+            audio_input.change(
+                fn=voice_conversation_on_stop,
+                inputs=[llm_provider, tts_provider, target_word, audio_input, conversation_history_state],
+                outputs=_conversation_outputs,
+            )
+        except Exception as change_error:
+            print("[UI] audio_input.change binding also failed:", change_error)
 
 
 if __name__ == "__main__":
@@ -1380,4 +1524,5 @@ if __name__ == "__main__":
         server_port=7860,
         share=False,
         allowed_paths=[str(Path(__file__).parent)],
+        css=CUSTOM_CSS,
     )
