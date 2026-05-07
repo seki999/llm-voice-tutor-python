@@ -257,6 +257,74 @@ def remove_phonetic_lines_for_tts(text: str) -> str:
     return "\n".join(kept_lines).strip()
 
 
+def remove_equal_lines_for_display_and_tts(text: str) -> str:
+    """
+    For batch word explanation display and TTS:
+    Remove lines that contain "=".
+    Example lines like "======" or "wreak = cause damage" will be removed.
+    """
+    if not text:
+        return ""
+
+    kept_lines = []
+
+    for line in text.splitlines():
+        if "=" in line:
+            print("[Text Filter] Skip line containing '=':", line)
+            continue
+
+        kept_lines.append(line)
+
+    return "\n".join(kept_lines).strip()
+
+
+def keep_only_chinese_english_for_tts(text: str) -> str:
+    """
+    For TTS only:
+    Remove symbols and punctuation as much as possible.
+    Keep only:
+      - Chinese characters
+      - English letters
+      - numbers
+      - whitespace
+
+    This prevents TTS from reading symbols like quotes, brackets, slashes, colons, etc.
+    """
+    if not text:
+        return ""
+
+    chars = []
+
+    for ch in text:
+        is_chinese = "\u4e00" <= ch <= "\u9fff"
+        is_english_or_number = ch.isascii() and ch.isalnum()
+        is_space = ch.isspace()
+
+        if is_chinese or is_english_or_number or is_space:
+            chars.append(ch)
+        else:
+            # Replace punctuation/symbol with a space so words do not stick together.
+            chars.append(" ")
+
+    cleaned = "".join(chars)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n\s*\n+", "\n", cleaned)
+    return cleaned.strip()
+
+
+def prepare_explanation_text_for_tts(text: str) -> str:
+    """
+    Common cleanup before explanation TTS:
+    1. Remove lines containing "="
+    2. Remove pure phonetic lines like [bɔːk]
+    3. Remove symbols/punctuation, keeping only Chinese and English text
+    """
+    text = remove_equal_lines_for_display_and_tts(text)
+    text = remove_phonetic_lines_for_tts(text)
+    text = keep_only_chinese_english_for_tts(text)
+    return text
+
+
 def extract_json_object(text: str) -> Optional[Dict[str, str]]:
     """
     Try to parse a JSON object from the model output.
@@ -319,7 +387,7 @@ def make_explanation_tts_texts(data: Dict[str, str]) -> Tuple[str, str]:
     - 朗读用这里的文本，要删除纯音标行。
     """
     if data.get("raw_text"):
-        tts_text = remove_phonetic_lines_for_tts(data.get("raw_text", ""))
+        tts_text = prepare_explanation_text_for_tts(data.get("raw_text", ""))
         return clean_markdown_stars(tts_text), ""
 
     word = data.get("word", "")
@@ -1219,6 +1287,115 @@ audio {
 }
 """
 
+
+def parse_words_from_text(words_text: str):
+    """
+    Parse up to 10 words from the words textbox.
+    Supports newline, comma, Chinese comma, Japanese comma, semicolon, and spaces.
+    """
+    if not words_text:
+        return DEFAULT_WORDS[:10]
+
+    separators = [",", "，", "、", ";", "；", "\n", "\t"]
+    normalized = words_text
+
+    for sep in separators:
+        normalized = normalized.replace(sep, " ")
+
+    words = []
+    for item in normalized.split(" "):
+        word = item.strip()
+        if word and word not in words:
+            words.append(word)
+
+    if not words:
+        return DEFAULT_WORDS[:10]
+
+    return words[:10]
+
+
+def export_text_to_file(text: str, suffix: str = ".txt") -> Optional[str]:
+    """
+    Export text to a temporary file for Gradio download.
+    """
+    text = text or ""
+
+    output_path = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix,
+        mode="w",
+        encoding="utf-8",
+    ).name
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+    print("[Export] Saved text file:", output_path)
+    return output_path
+
+
+def explain_all_words(
+    llm_provider: str,
+    tts_provider: str,
+    words_text: str,
+) -> Tuple[str, Optional[str], Optional[str], Optional[str], str]:
+    """
+    Generate explanations for up to 10 words.
+    Also generate one combined TTS audio file and downloadable txt/audio files.
+    """
+    words = parse_words_from_text(words_text)
+
+    if not words:
+        empty_msg = "没有找到可解释的单词。请先输入或更新单词列表。"
+        return empty_msg, None, None, None, get_teacher_idle_path()
+
+    print("[Batch Explain] Words:", words)
+
+    sections = []
+
+    for index, word in enumerate(words, start=1):
+        word = word.strip()
+        if not word:
+            continue
+
+        print(f"[Batch Explain] Explaining {index}/{len(words)}:", word)
+
+        data = call_llm_explain_json(llm_provider, word)
+        explanation_text = format_explanation(data)
+
+        # 全部单词解释中：过滤所有包含 "=" 的行，显示和朗读都不保留。
+        explanation_text = remove_equal_lines_for_display_and_tts(explanation_text)
+
+        section = (
+            f"{index}. {word}\n"
+            f"{explanation_text}"
+        )
+        sections.append(section)
+
+    if not sections:
+        empty_msg = "没有生成任何单词解释。"
+        return empty_msg, None, None, None, get_teacher_idle_path()
+
+    all_text = "\n\n".join(sections).strip()
+
+    # Export text for download.
+    text_file = export_text_to_file(all_text, suffix=".txt")
+
+    # For TTS, remove "=" lines, phonetic lines, and symbols.
+    tts_text = prepare_explanation_text_for_tts(all_text)
+
+    # Generate one combined audio for all explanations.
+    # For edge-tts / OpenAI TTS API, this is the preferred path.
+    # For pyttsx3, it still generates one audio, but mixed CN/EN may be less natural.
+    audio_file = synthesize_tts_file(
+        tts_provider,
+        tts_text,
+        language="zh" if contains_cjk(tts_text) else "en",
+        cleanup_before=True,
+    )
+
+    return all_text, audio_file, text_file, audio_file, get_teacher_speaking_path()
+
 # ============================================================
 # Gradio event functions
 # ============================================================
@@ -1232,7 +1409,7 @@ def make_explanation_combined_tts_text(data: Dict[str, str]) -> str:
     - 朗读用这里的文本，要删除纯音标行。
     """
     if data.get("raw_text"):
-        tts_text = remove_phonetic_lines_for_tts(data.get("raw_text", ""))
+        tts_text = prepare_explanation_text_for_tts(data.get("raw_text", ""))
         return clean_markdown_stars(tts_text)
 
     lines = [
@@ -1452,6 +1629,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
             )
 
             explain_btn = gr.Button("单词解释")
+            explain_all_btn = gr.Button("全部10个单词解释")
 
         with gr.Column(scale=1):
             teacher_image = gr.Image(
@@ -1481,6 +1659,30 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
                     autoplay=False,
                 )
 
+            gr.Markdown("### 全部单词解释")
+
+            explain_all_output = gr.Textbox(
+                label="全部10个单词解释（可导出）",
+                lines=18,
+                interactive=False,
+            )
+
+            explain_all_audio_output = gr.Audio(
+                label="全部单词解释朗读",
+                type="filepath",
+                autoplay=False,
+            )
+
+            with gr.Row():
+                explain_all_text_file = gr.File(
+                    label="下载全部单词解释 TXT",
+                    visible=True,
+                )
+                explain_all_audio_file = gr.File(
+                    label="下载全部单词解释音频",
+                    visible=True,
+                )
+
     update_words_btn.click(
         fn=update_words_from_text,
         inputs=[words_text],
@@ -1492,6 +1694,19 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         inputs=[llm_provider, tts_provider, target_word],
         outputs=[explain_output, explain_audio_zh_output, explain_audio_en_output, teacher_image],
     )
+
+    explain_all_btn.click(
+        fn=explain_all_words,
+        inputs=[llm_provider, tts_provider, words_text],
+        outputs=[
+            explain_all_output,
+            explain_all_audio_output,
+            explain_all_text_file,
+            explain_all_audio_file,
+            teacher_image,
+        ],
+    )
+
 
     gr.Markdown("## 语音练习")
 
@@ -1553,7 +1768,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
 
     # Gradio 原生 Audio 事件：播放时显示 teacher_speaking.gif，暂停/停止时显示 teacher.gif。
-    for _audio in [explain_audio_zh_output, explain_audio_en_output, audio_reply_output]:
+    for _audio in [explain_audio_zh_output, explain_audio_en_output, explain_all_audio_output, audio_reply_output]:
         try:
             _audio.play(fn=set_teacher_speaking, inputs=None, outputs=teacher_image)
             _audio.pause(fn=set_teacher_idle, inputs=None, outputs=teacher_image)
