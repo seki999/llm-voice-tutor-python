@@ -588,7 +588,7 @@ def call_openai_explain_json(target_word: str) -> Dict[str, str]:
 你是一位专业的英语教学专家（TESOL）与 TOEIC 词汇导师。你擅长通过“词根词缀分析”与“极简情景对话”帮助学习者深度掌握单词。
 
 核心指令 (Core Instructions)
-1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。
+1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。最多输出 3 个最常见核心词义，不输出冷门词义。
 2. 记忆方法: 优先使用词根词缀法。若无明显词根词缀，则使用联想或谐音。
 3. 对话约束:
    - 每个模块必须包含一个中文问答语境翻译。
@@ -650,7 +650,9 @@ Please charge it to my account.
                 {"role": "user", "content": user_prompt.strip()},
             ],
             temperature=0.2,
-            max_output_tokens=260,
+            # TESOL/TOEIC 格式较长，尤其多义词会生成多个模块。
+            # 260 tokens 容易截断，所以这里提高到 1200。
+            max_output_tokens=1200,
         )
 
         output_text = clean_markdown_stars(response.output_text or "")
@@ -806,7 +808,7 @@ def call_local_llm_explain_json(target_word: str) -> Dict[str, str]:
 你是一位专业的英语教学专家（TESOL）与 TOEIC 词汇导师。你擅长通过“词根词缀分析”与“极简情景对话”帮助学习者深度掌握单词。
 
 核心指令 (Core Instructions)
-1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。
+1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。最多输出 3 个最常见核心词义，不输出冷门词义。
 2. 记忆方法: 优先使用词根词缀法。若无明显词根词缀，则使用联想或谐音。
 3. 对话约束:
    - 每个模块必须包含一个中文问答语境翻译。
@@ -871,7 +873,9 @@ Please charge it to my account.
                     {"role": "user", "content": user_prompt.strip()},
                 ],
                 "temperature": 0.2,
-                "max_tokens": 260,
+                # TESOL/TOEIC 格式较长，尤其多义词会生成多个模块。
+                # 260 tokens 容易截断，所以这里提高到 1200。
+                "max_tokens": 1200,
                 "stream": False,
             },
             timeout=120,
