@@ -229,6 +229,34 @@ def clean_markdown_stars(text: str) -> str:
     return (text or "").replace("*", "").strip()
 
 
+def remove_phonetic_lines_for_tts(text: str) -> str:
+    """
+    For TTS only:
+    Skip lines that are pure phonetic symbols, such as:
+      [bɔːk]
+      [əˈkaʊnt]
+
+    Rule:
+    If a line starts with "[" and ends with "]", do not read that line.
+    The displayed explanation text is not changed.
+    """
+    if not text:
+        return ""
+
+    kept_lines = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+
+        if stripped.startswith("[") and stripped.endswith("]"):
+            print("[TTS] Skip phonetic line:", stripped)
+            continue
+
+        kept_lines.append(line)
+
+    return "\n".join(kept_lines).strip()
+
+
 def extract_json_object(text: str) -> Optional[Dict[str, str]]:
     """
     Try to parse a JSON object from the model output.
@@ -260,7 +288,13 @@ def extract_json_object(text: str) -> Optional[Dict[str, str]]:
 def format_explanation(data: Dict[str, str]) -> str:
     """
     Format word explanation without markdown stars.
+    新版单词解释提示词要求模型直接返回固定文本格式。
+    如果有 raw_text，则直接显示 raw_text。
+    注意：这里绝对不要删除音标行。音标行只在 TTS 朗读前过滤。
     """
+    if data.get("raw_text"):
+        return clean_markdown_stars(data.get("raw_text", ""))
+
     lines = [
         f"单词：{data.get('word', '')}",
         f"中文意思：{data.get('meaning_cn', '')}",
@@ -276,8 +310,18 @@ def format_explanation(data: Dict[str, str]) -> str:
 def make_explanation_tts_texts(data: Dict[str, str]) -> Tuple[str, str]:
     """
     Return (Chinese TTS text, English TTS text).
-    Chinese and English are separated so they can be read by different voices.
+    pyttsx3 用于分开朗读时：
+    如果是新版 raw_text 格式，中文部分读完整说明，英文部分留空。
+    edge-tts / OpenAI TTS API 会使用合并朗读。
+
+    注意：
+    - 页面显示用 format_explanation，不删除音标行。
+    - 朗读用这里的文本，要删除纯音标行。
     """
+    if data.get("raw_text"):
+        tts_text = remove_phonetic_lines_for_tts(data.get("raw_text", ""))
+        return clean_markdown_stars(tts_text), ""
+
     word = data.get("word", "")
     zh_text = (
         f"{word}。"
@@ -472,21 +516,56 @@ def call_openai_explain_json(target_word: str) -> Dict[str, str]:
         }
 
     system_prompt = """
-You are a friendly English vocabulary tutor for a Chinese learner.
+角色 (Role)
+你是一位专业的英语教学专家（TESOL）与 TOEIC 词汇导师。你擅长通过“词根词缀分析”与“极简情景对话”帮助学习者深度掌握单词。
 
-Return strict JSON only. No markdown. No asterisks.
+核心指令 (Core Instructions)
+1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。
+2. 记忆方法: 优先使用词根词缀法。若无明显词根词缀，则使用联想或谐音。
+3. 对话约束:
+   - 每个模块必须包含一个中文问答语境翻译。
+   - 每个模块必须包含一个英语提问句。
+   - 每个模块必须包含一个包含目标词的英语回答句。
+   - 英语回答句必须 7 词以内。
+4. 不要输出 JSON。
+5. 不要输出 markdown。
+6. 不要使用星号。
+7. 请严格遵循以下顺序，严禁输出任何额外解释或开场白。音标行必须保留在输出中。
 
-JSON schema:
-{
-  "word": "target word",
-  "meaning_cn": "Chinese meaning",
-  "part_of_speech_cn": "part of speech in Chinese, with English term in parentheses if useful",
-  "usage_cn": "common usage explained in Chinese",
-  "example_en": "one short natural English example sentence",
-  "example_cn": "Chinese translation of the example sentence",
-  "practice_question_en": "one short English practice question using the word",
-  "practice_question_cn": "Chinese translation of the practice question"
-}
+输出格式要求 (Output Format)
+每个词义模块都必须严格按照下面格式输出：
+
+[美式发音国际音标]
+[单词], [单词], [单词]
+[当前含义对应的词性], [中文核心意思]
+记忆方法: [纯中文拆解/联想法]
+相关词族: [中文分类，如：动词, 名词]
+[对应的英语单词列表]
+[下方问答对话的中文翻译内容]
+[英语提问句？]
+[包含目标词的英语回答句 (7词以内)]
+
+示例 (Example)
+输入: account
+[əˈkaʊnt]
+account, account, account
+动词, 解释；说明（原因）
+记忆方法: 前缀 ac- (加强) + count (计算)。对账目核算并说明理由，引申为“解释”。
+相关词族: 名词, 形容词
+account, accountable
+你今天为什么迟到？/ 交通堵塞导致了我的延迟。
+Why were you late today?
+Bad traffic accounts for my delay.
+
+[əˈkaʊnt]
+account, account, account
+名词, 账户；账目
+记忆方法: count 本意是计数。在银行记下的数字，即为“账户”。
+相关词族: 名词 (会计)
+accountant
+我该如何付款？/ 请记在我的账上。
+How can I pay for this?
+Please charge it to my account.
 """
 
     user_prompt = f"Target word: {target_word}"
@@ -509,36 +588,10 @@ JSON schema:
         output_text = clean_markdown_stars(response.output_text or "")
         print("[OpenAI] Explanation raw:", output_text)
 
-        data = extract_json_object(output_text)
-
-        if not data:
-            # Fallback if model does not return JSON.
-            return {
-                "word": target_word,
-                "meaning_cn": output_text,
-                "part_of_speech_cn": "",
-                "usage_cn": "",
-                "example_en": "",
-                "example_cn": "",
-                "practice_question_en": "",
-                "practice_question_cn": "",
-            }
-
-        # Clean every field.
-        cleaned = {}
-        for key, value in data.items():
-            cleaned[key] = clean_markdown_stars(str(value))
-
-        cleaned.setdefault("word", target_word)
-        cleaned.setdefault("meaning_cn", "")
-        cleaned.setdefault("part_of_speech_cn", "")
-        cleaned.setdefault("usage_cn", "")
-        cleaned.setdefault("example_en", "")
-        cleaned.setdefault("example_cn", "")
-        cleaned.setdefault("practice_question_en", "")
-        cleaned.setdefault("practice_question_cn", "")
-
-        return cleaned
+        return {
+            "word": target_word,
+            "raw_text": output_text,
+        }
 
     except Exception as e:
         print("[OpenAI] Error:", e)
@@ -681,21 +734,56 @@ def call_local_llm_explain_json(target_word: str) -> Dict[str, str]:
     用本地 LM Studio 返回单词解释 JSON。
     """
     system_prompt = """
-You are a friendly English vocabulary tutor for a Chinese learner.
+角色 (Role)
+你是一位专业的英语教学专家（TESOL）与 TOEIC 词汇导师。你擅长通过“词根词缀分析”与“极简情景对话”帮助学习者深度掌握单词。
 
-Return strict JSON only. No markdown. No asterisks.
+核心指令 (Core Instructions)
+1. 多义词拆解: 若一个单词有多个核心词义，必须为每个词义生成独立的模块。
+2. 记忆方法: 优先使用词根词缀法。若无明显词根词缀，则使用联想或谐音。
+3. 对话约束:
+   - 每个模块必须包含一个中文问答语境翻译。
+   - 每个模块必须包含一个英语提问句。
+   - 每个模块必须包含一个包含目标词的英语回答句。
+   - 英语回答句必须 7 词以内。
+4. 不要输出 JSON。
+5. 不要输出 markdown。
+6. 不要使用星号。
+7. 请严格遵循以下顺序，严禁输出任何额外解释或开场白。
 
-JSON schema:
-{
-  "word": "target word",
-  "meaning_cn": "Chinese meaning",
-  "part_of_speech_cn": "part of speech in Chinese, with English term in parentheses if useful",
-  "usage_cn": "common usage explained in Chinese",
-  "example_en": "one short natural English example sentence",
-  "example_cn": "Chinese translation of the example sentence",
-  "practice_question_en": "one short English practice question using the word",
-  "practice_question_cn": "Chinese translation of the practice question"
-}
+输出格式要求 (Output Format)
+每个词义模块都必须严格按照下面格式输出：
+
+[美式发音国际音标]
+[单词], [单词], [单词]
+[当前含义对应的词性], [中文核心意思]
+记忆方法: [纯中文拆解/联想法]
+相关词族: [中文分类，如：动词, 名词]
+[对应的英语单词列表]
+[下方问答对话的中文翻译内容]
+[英语提问句？]
+[包含目标词的英语回答句 (7词以内)]
+
+示例 (Example)
+输入: account
+[əˈkaʊnt]
+account, account, account
+动词, 解释；说明（原因）
+记忆方法: 前缀 ac- (加强) + count (计算)。对账目核算并说明理由，引申为“解释”。
+相关词族: 名词, 形容词
+account, accountable
+你今天为什么迟到？/ 交通堵塞导致了我的延迟。
+Why were you late today?
+Bad traffic accounts for my delay.
+
+[əˈkaʊnt]
+account, account, account
+名词, 账户；账目
+记忆方法: count 本意是计数。在银行记下的数字，即为“账户”。
+相关词族: 名词 (会计)
+accountant
+我该如何付款？/ 请记在我的账上。
+How can I pay for this?
+Please charge it to my account.
 """
     user_prompt = f"Target word: {target_word}"
 
@@ -725,32 +813,10 @@ JSON schema:
         output_text = clean_markdown_stars(data["choices"][0]["message"]["content"].strip())
         print("[Local LLM] Explanation raw:", output_text)
 
-        parsed = extract_json_object(output_text)
-        if not parsed:
-            return {
-                "word": target_word,
-                "meaning_cn": output_text,
-                "part_of_speech_cn": "",
-                "usage_cn": "",
-                "example_en": "",
-                "example_cn": "",
-                "practice_question_en": "",
-                "practice_question_cn": "",
-            }
-
-        cleaned = {}
-        for key, value in parsed.items():
-            cleaned[key] = clean_markdown_stars(str(value))
-
-        cleaned.setdefault("word", target_word)
-        cleaned.setdefault("meaning_cn", "")
-        cleaned.setdefault("part_of_speech_cn", "")
-        cleaned.setdefault("usage_cn", "")
-        cleaned.setdefault("example_en", "")
-        cleaned.setdefault("example_cn", "")
-        cleaned.setdefault("practice_question_en", "")
-        cleaned.setdefault("practice_question_cn", "")
-        return cleaned
+        return {
+            "word": target_word,
+            "raw_text": output_text,
+        }
 
     except Exception as e:
         print("[Local LLM] Error:", e)
@@ -1160,7 +1226,15 @@ def make_explanation_combined_tts_text(data: Dict[str, str]) -> str:
     """
     edge-tts / OpenAI TTS API 用：
     中英混合时不再拆成两个音频，而是一次生成完整朗读音频。
+
+    注意：
+    - 页面显示用 format_explanation，不删除音标行。
+    - 朗读用这里的文本，要删除纯音标行。
     """
+    if data.get("raw_text"):
+        tts_text = remove_phonetic_lines_for_tts(data.get("raw_text", ""))
+        return clean_markdown_stars(tts_text)
+
     lines = [
         f"单词：{data.get('word', '')}",
         f"中文意思：{data.get('meaning_cn', '')}",
@@ -1390,7 +1464,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
         with gr.Column(scale=2):
             explain_output = gr.Textbox(
-                label="单词解释（已去掉 *；edge/OpenAI 合并朗读，pyttsx3 分开朗读）",
+                label="单词解释（TESOL/TOEIC格式）",
                 lines=10,
             )
 
