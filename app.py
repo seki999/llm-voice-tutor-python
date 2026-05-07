@@ -1285,6 +1285,143 @@ label, .wrap label {
 audio {
   width: 100% !important;
 }
+
+/* Batch status row: force the whole Row and its children to stay short */
+#batch_status_download_row {
+  min-height: 24px !important;
+  height: 24px !important;
+  max-height: 24px !important;
+  overflow: hidden !important;
+  align-items: center !important;
+  gap: 4px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#batch_status_download_row > div,
+#batch_status_download_row .form,
+#batch_status_download_row .block,
+#batch_status_download_row .wrap,
+#batch_status_download_row .container {
+  min-height: 22px !important;
+  height: 22px !important;
+  max-height: 22px !important;
+  margin: 0 !important;
+  padding: 0 2px !important;
+  overflow: hidden !important;
+}
+
+#batch_status_download_row label {
+  display: none !important;
+}
+
+#batch_status_download_row textarea {
+  min-height: 20px !important;
+  height: 20px !important;
+  max-height: 20px !important;
+  padding: 1px 5px !important;
+  margin: 0 !important;
+  font-size: 11px !important;
+  line-height: 1.1 !important;
+  overflow: hidden !important;
+  resize: none !important;
+}
+
+#batch_status_download_row .file-preview,
+#batch_status_download_row .file,
+#batch_status_download_row [data-testid="file"],
+#batch_status_download_row button,
+#batch_status_download_row .download {
+  min-height: 20px !important;
+  height: 20px !important;
+  max-height: 20px !important;
+  padding: 0 5px !important;
+  margin: 0 !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  overflow: hidden !important;
+}
+
+/* Refined inline target-word selector */
+#target_word_row {
+  gap: 12px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  margin: 4px 0 10px 0 !important;
+  padding: 0 !important;
+}
+
+#target_word_row > div {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#target_word_label {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#target_word_row .gradio-dropdown,
+#target_word_row [data-testid="dropdown"],
+#target_word_row [role="combobox"] {
+  min-width: 210px !important;
+  width: 210px !important;
+}
+
+#target_word_row input,
+#target_word_row [role="combobox"] {
+  min-height: 42px !important;
+  height: 42px !important;
+  max-height: 42px !important;
+  font-size: 16px !important;
+  border-radius: 10px !important;
+}
+
+#target_word_row .wrap,
+#target_word_row .container,
+#target_word_row .block {
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: auto !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Full-width polished explanation buttons */
+#explain_buttons_row {
+  gap: 12px !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  margin: 8px 0 0 0 !important;
+  padding: 0 !important;
+}
+
+#explain_buttons_row > div {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#explain_buttons_row button {
+  width: 100% !important;
+  min-height: 52px !important;
+  height: 52px !important;
+  max-height: 52px !important;
+  border-radius: 12px !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+  padding: 8px 12px !important;
+}
 """
 
 
@@ -1338,7 +1475,7 @@ def explain_all_words(
     llm_provider: str,
     tts_provider: str,
     words_text: str,
-) -> Tuple[str, Optional[str], Optional[str], Optional[str], str]:
+) -> Tuple[str, Optional[str], Optional[str], str]:
     """
     Generate explanations for up to 10 words.
     Also generate one combined TTS audio file and downloadable txt/audio files.
@@ -1347,7 +1484,7 @@ def explain_all_words(
 
     if not words:
         empty_msg = "没有找到可解释的单词。请先输入或更新单词列表。"
-        return empty_msg, None, None, None, get_teacher_idle_path()
+        return empty_msg, None, None, get_teacher_idle_path()
 
     print("[Batch Explain] Words:", words)
 
@@ -1374,7 +1511,7 @@ def explain_all_words(
 
     if not sections:
         empty_msg = "没有生成任何单词解释。"
-        return empty_msg, None, None, None, get_teacher_idle_path()
+        return empty_msg, None, None, get_teacher_idle_path()
 
     all_text = "\n\n".join(sections).strip()
 
@@ -1394,7 +1531,8 @@ def explain_all_words(
         cleanup_before=True,
     )
 
-    return all_text, audio_file, text_file, audio_file, get_teacher_speaking_path()
+    status_text = f"已生成 {len(words)} 个单词的解释。可以下载 TXT 和朗读音频。"
+    return status_text, text_file, audio_file, get_teacher_speaking_path()
 
 # ============================================================
 # Gradio event functions
@@ -1621,15 +1759,32 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
             update_words_btn = gr.Button("更新单词列表")
 
-            target_word = gr.Dropdown(
-                choices=DEFAULT_WORDS,
-                value=DEFAULT_WORDS[0],
-                label="当前练习单词",
-                allow_custom_value=True,
-            )
+            with gr.Row(elem_id="target_word_row"):
+                gr.HTML(
+                    "<div id='target_word_label'>当前练习单词</div>"
+                )
+                target_word = gr.Dropdown(
+                    choices=DEFAULT_WORDS,
+                    value=DEFAULT_WORDS[0],
+                    label="",
+                    show_label=False,
+                    allow_custom_value=True,
+                    container=False,
+                    scale=0,
+                    min_width=170,
+                )
 
-            explain_btn = gr.Button("单词解释")
-            explain_all_btn = gr.Button("全部10个单词解释")
+            with gr.Row(elem_id="explain_buttons_row"):
+                explain_btn = gr.Button(
+                    "单词解释",
+                    scale=1,
+                    min_width=0,
+                )
+                explain_all_btn = gr.Button(
+                    "全部10个单词解释",
+                    scale=1,
+                    min_width=0,
+                )
 
         with gr.Column(scale=1):
             teacher_image = gr.Image(
@@ -1659,28 +1814,26 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
                     autoplay=False,
                 )
 
-            gr.Markdown("### 全部单词解释")
-
-            explain_all_output = gr.Textbox(
-                label="全部10个单词解释（可导出）",
-                lines=18,
-                interactive=False,
-            )
-
-            explain_all_audio_output = gr.Audio(
-                label="全部单词解释朗读",
-                type="filepath",
-                autoplay=False,
-            )
-
-            with gr.Row():
-                explain_all_text_file = gr.File(
-                    label="下载全部单词解释 TXT",
-                    visible=True,
+            with gr.Row(elem_id="batch_status_download_row"):
+                explain_all_status = gr.Textbox(
+                    label="状态",
+                    lines=1,
+                    interactive=False,
+                    scale=5,
                 )
-                explain_all_audio_file = gr.File(
-                    label="下载全部单词解释音频",
+
+                explain_all_text_file = gr.File(
+                    label="TXT",
                     visible=True,
+                    scale=1,
+                    min_width=80,
+                )
+
+                explain_all_audio_file = gr.File(
+                    label="MP3",
+                    visible=True,
+                    scale=1,
+                    min_width=80,
                 )
 
     update_words_btn.click(
@@ -1699,8 +1852,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         fn=explain_all_words,
         inputs=[llm_provider, tts_provider, words_text],
         outputs=[
-            explain_all_output,
-            explain_all_audio_output,
+            explain_all_status,
             explain_all_text_file,
             explain_all_audio_file,
             teacher_image,
@@ -1768,7 +1920,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
 
     # Gradio 原生 Audio 事件：播放时显示 teacher_speaking.gif，暂停/停止时显示 teacher.gif。
-    for _audio in [explain_audio_zh_output, explain_audio_en_output, explain_all_audio_output, audio_reply_output]:
+    for _audio in [explain_audio_zh_output, explain_audio_en_output, audio_reply_output]:
         try:
             _audio.play(fn=set_teacher_speaking, inputs=None, outputs=teacher_image)
             _audio.pause(fn=set_teacher_idle, inputs=None, outputs=teacher_image)
