@@ -1278,68 +1278,12 @@ label, .wrap label {
 
 /* Make markdown output text a little larger */
 .prose, .markdown {
-  font-size: 16px !important;
+  font-size: 14px !important;
 }
 
 /* Keep audio components compact */
 audio {
   width: 100% !important;
-}
-
-/* Batch status row: force the whole Row and its children to stay short */
-#batch_status_download_row {
-  min-height: 24px !important;
-  height: 24px !important;
-  max-height: 24px !important;
-  overflow: hidden !important;
-  align-items: center !important;
-  gap: 4px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-#batch_status_download_row > div,
-#batch_status_download_row .form,
-#batch_status_download_row .block,
-#batch_status_download_row .wrap,
-#batch_status_download_row .container {
-  min-height: 22px !important;
-  height: 22px !important;
-  max-height: 22px !important;
-  margin: 0 !important;
-  padding: 0 2px !important;
-  overflow: hidden !important;
-}
-
-#batch_status_download_row label {
-  display: none !important;
-}
-
-#batch_status_download_row textarea {
-  min-height: 20px !important;
-  height: 20px !important;
-  max-height: 20px !important;
-  padding: 1px 5px !important;
-  margin: 0 !important;
-  font-size: 11px !important;
-  line-height: 1.1 !important;
-  overflow: hidden !important;
-  resize: none !important;
-}
-
-#batch_status_download_row .file-preview,
-#batch_status_download_row .file,
-#batch_status_download_row [data-testid="file"],
-#batch_status_download_row button,
-#batch_status_download_row .download {
-  min-height: 20px !important;
-  height: 20px !important;
-  max-height: 20px !important;
-  padding: 0 5px !important;
-  margin: 0 !important;
-  font-size: 10px !important;
-  line-height: 1 !important;
-  overflow: hidden !important;
 }
 
 /* Refined inline target-word selector */
@@ -1377,11 +1321,11 @@ audio {
 
 #target_word_row input,
 #target_word_row [role="combobox"] {
-  min-height: 42px !important;
-  height: 42px !important;
-  max-height: 42px !important;
-  font-size: 16px !important;
-  border-radius: 10px !important;
+  min-height: 28px !important;
+  height: 28px !important;
+  max-height: 28px !important;
+  font-size: 14px !important;
+  border-radius: 8px !important;
 }
 
 #target_word_row .wrap,
@@ -1421,6 +1365,185 @@ audio {
   line-height: 1.15 !important;
   white-space: nowrap !important;
   padding: 8px 12px !important;
+}
+
+/* Keep the status box small */
+#batch_status_download_row textarea {
+  min-height: 38px !important;
+  height: 38px !important;
+  max-height: 38px !important;
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+  padding: 4px 6px !important;
+  overflow: hidden !important;
+  resize: none !important;
+}
+
+/* Do NOT hide/clip Gradio File components too much, otherwise download becomes unclickable. */
+#batch_status_download_row .file-preview,
+#batch_status_download_row .file,
+#batch_status_download_row [data-testid="file"] {
+  min-height: 38px !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  font-size: 12px !important;
+}
+
+#batch_status_download_row button,
+#batch_status_download_row .download {
+  min-height: 28px !important;
+  height: 28px !important;
+  font-size: 12px !important;
+  line-height: 1.1 !important;
+  padding: 3px 8px !important;
+}
+
+/* Hide only labels to save space, not the file body/download link. */
+#batch_status_download_row label {
+  display: none !important;
+}
+
+#batch_status_download_row .wrap,
+#batch_status_download_row .block,
+#batch_status_download_row .form,
+#batch_status_download_row .container {
+  padding: 2px !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+/* Batch status + download row: visible labels, compact layout */
+#batch_status_download_row {
+  gap: 10px !important;
+  align-items: stretch !important;
+  margin: 8px 0 0 0 !important;
+  padding: 0 !important;
+}
+
+/* Status box: small but readable */
+#batch_status_download_row textarea {
+  min-height: 48px !important;
+  height: 48px !important;
+  max-height: 48px !important;
+  font-size: 13px !important;
+  line-height: 1.25 !important;
+  padding: 5px 8px !important;
+  overflow: hidden !important;
+  resize: none !important;
+}
+
+/* Restore visible labels for TXT / audio download boxes */
+#batch_status_download_row label {
+  display: block !important;
+  font-size: 12px !important;
+  line-height: 1.1 !important;
+  margin-bottom: 3px !important;
+}
+
+/* Keep File components usable; do not clip inner download links */
+#batch_status_download_row .file-preview,
+#batch_status_download_row .file,
+#batch_status_download_row [data-testid="file"] {
+  min-height: 72px !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  font-size: 12px !important;
+}
+
+/* Keep internal padding modest */
+#batch_status_download_row .wrap,
+#batch_status_download_row .block,
+#batch_status_download_row .form,
+#batch_status_download_row .container {
+  padding: 4px !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+/* Download buttons/text inside File components */
+#batch_status_download_row button,
+#batch_status_download_row .download {
+  min-height: 28px !important;
+  height: auto !important;
+  font-size: 12px !important;
+  line-height: 1.1 !important;
+  padding: 3px 8px !important;
+  white-space: nowrap !important;
+}
+
+/* Batch download links: very small footprint */
+#batch_download_links_row {
+  gap: 12px !important;
+  align-items: center !important;
+  margin: 4px 0 0 0 !important;
+  padding: 0 !important;
+}
+
+#batch_download_links_row > div {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#batch_download_links_row a,
+#batch_download_links_row span {
+  font-size: 13px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+}
+
+/* Single explanation audio + batch download links in one row */
+#single_audio_and_batch_links_row {
+  gap: 12px !important;
+  align-items: stretch !important;
+  margin: 6px 0 0 0 !important;
+  padding: 0 !important;
+}
+
+#single_audio_and_batch_links_row > div {
+  min-width: 0 !important;
+}
+
+#batch_links_col {
+  justify-content: center !important;
+  gap: 4px !important;
+  padding-top: 18px !important;
+}
+
+#batch_links_col a,
+#batch_links_col span {
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+  text-decoration: underline;
+}
+
+#batch_links_col label {
+  display: none !important;
+}
+
+/* Final compact override for current target-word dropdown */
+#target_word_row input,
+#target_word_row [role="combobox"] {
+  min-height: 28px !important;
+  height: 28px !important;
+  max-height: 28px !important;
+  font-size: 14px !important;
+  line-height: 1.1 !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+
+#target_word_row .wrap,
+#target_word_row .container,
+#target_word_row .block {
+  min-height: 28px !important;
+  height: 28px !important;
+  max-height: 28px !important;
 }
 """
 
@@ -1471,11 +1594,32 @@ def export_text_to_file(text: str, suffix: str = ".txt") -> Optional[str]:
     return output_path
 
 
+
+def make_download_link(file_path: Optional[str], label: str) -> str:
+    """
+    Return a small HTML download link for a local file.
+    The temp directory is allowed in demo.launch(allowed_paths=...).
+    """
+    if not file_path or not os.path.exists(file_path):
+        return f"<span style='font-size:12px;color:#999;'>{label}: 未生成</span>"
+
+    url_path = str(Path(file_path).resolve()).replace("\\", "/")
+    file_name = Path(file_path).name
+
+    return (
+        f"<a href='/gradio_api/file={url_path}' "
+        f"download='{file_name}' "
+        f"target='_blank' "
+        f"style='font-size:13px; text-decoration: underline; white-space: nowrap;'>"
+        f"{label}</a>"
+    )
+
+
 def explain_all_words(
     llm_provider: str,
     tts_provider: str,
     words_text: str,
-) -> Tuple[str, Optional[str], Optional[str], str]:
+) -> Tuple[str, str, str]:
     """
     Generate explanations for up to 10 words.
     Also generate one combined TTS audio file and downloadable txt/audio files.
@@ -1483,8 +1627,9 @@ def explain_all_words(
     words = parse_words_from_text(words_text)
 
     if not words:
-        empty_msg = "没有找到可解释的单词。请先输入或更新单词列表。"
-        return empty_msg, None, None, get_teacher_idle_path()
+        empty_msg = "<span style='font-size:12px;color:#999;'>TXT: 未生成</span>"
+        audio_msg = "<span style='font-size:12px;color:#999;'>音频: 未生成</span>"
+        return empty_msg, audio_msg, get_teacher_idle_path()
 
     print("[Batch Explain] Words:", words)
 
@@ -1510,8 +1655,9 @@ def explain_all_words(
         sections.append(section)
 
     if not sections:
-        empty_msg = "没有生成任何单词解释。"
-        return empty_msg, None, None, get_teacher_idle_path()
+        empty_msg = "<span style='font-size:12px;color:#999;'>TXT: 未生成</span>"
+        audio_msg = "<span style='font-size:12px;color:#999;'>音频: 未生成</span>"
+        return empty_msg, audio_msg, get_teacher_idle_path()
 
     all_text = "\n\n".join(sections).strip()
 
@@ -1531,8 +1677,13 @@ def explain_all_words(
         cleanup_before=True,
     )
 
-    status_text = f"已生成 {len(words)} 个单词的解释。可以下载 TXT 和朗读音频。"
-    return status_text, text_file, audio_file, get_teacher_speaking_path()
+    print("[Batch Explain] Text file:", text_file)
+    print("[Batch Explain] Audio file:", audio_file)
+
+    txt_link = make_download_link(text_file, "TXT下载")
+    audio_link = make_download_link(audio_file, "音频下载")
+
+    return txt_link, audio_link, get_teacher_speaking_path()
 
 # ============================================================
 # Gradio event functions
@@ -1802,39 +1953,27 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
             )
 
             with gr.Row():
-                explain_audio_zh_output = gr.Audio(
-                    label="单词解释朗读（edge-tts / OpenAI TTS 合并朗读；pyttsx3 中文解释）",
-                    type="filepath",
-                    autoplay=True,
-                )
+                with gr.Row(elem_id="single_audio_and_batch_links_row"):
+                    explain_audio_zh_output = gr.Audio(
+                        label="单词解释朗读",
+                        type="filepath",
+                        autoplay=True,
+                        scale=5,
+                    )
 
-                explain_audio_en_output = gr.Audio(
-                    label="英文例句朗读（仅 pyttsx3 分开朗读时使用；需手动播放）",
-                    type="filepath",
-                    autoplay=False,
-                )
+                    with gr.Column(elem_id="batch_links_col", scale=1):
+                        explain_all_text_link = gr.HTML(
+                            "<span style='font-size:12px;color:#999;'>TXT: 未生成</span>"
+                        )
+                        explain_all_audio_link = gr.HTML(
+                            "<span style='font-size:12px;color:#999;'>音频: 未生成</span>"
+                        )
 
-            with gr.Row(elem_id="batch_status_download_row"):
-                explain_all_status = gr.Textbox(
-                    label="状态",
-                    lines=1,
-                    interactive=False,
-                    scale=5,
-                )
+                # Hidden placeholder for the removed English-example audio output.
+                # explain_word still returns this third value for pyttsx3 compatibility.
+                explain_audio_en_output = gr.Textbox(visible=False)
 
-                explain_all_text_file = gr.File(
-                    label="TXT",
-                    visible=True,
-                    scale=1,
-                    min_width=80,
-                )
 
-                explain_all_audio_file = gr.File(
-                    label="MP3",
-                    visible=True,
-                    scale=1,
-                    min_width=80,
-                )
 
     update_words_btn.click(
         fn=update_words_from_text,
@@ -1852,9 +1991,8 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
         fn=explain_all_words,
         inputs=[llm_provider, tts_provider, words_text],
         outputs=[
-            explain_all_status,
-            explain_all_text_file,
-            explain_all_audio_file,
+            explain_all_text_link,
+            explain_all_audio_link,
             teacher_image,
         ],
     )
@@ -1920,7 +2058,7 @@ with gr.Blocks(title="LLM Voice Tutor") as demo:
 
 
     # Gradio 原生 Audio 事件：播放时显示 teacher_speaking.gif，暂停/停止时显示 teacher.gif。
-    for _audio in [explain_audio_zh_output, explain_audio_en_output, audio_reply_output]:
+    for _audio in [explain_audio_zh_output, audio_reply_output]:
         try:
             _audio.play(fn=set_teacher_speaking, inputs=None, outputs=teacher_image)
             _audio.pause(fn=set_teacher_idle, inputs=None, outputs=teacher_image)
@@ -1964,6 +2102,6 @@ if __name__ == "__main__":
         server_name="127.0.0.1",
         server_port=7860,
         share=False,
-        allowed_paths=[str(Path(__file__).parent)],
+        allowed_paths=[str(Path(__file__).parent), tempfile.gettempdir()],
         css=CUSTOM_CSS,
     )
